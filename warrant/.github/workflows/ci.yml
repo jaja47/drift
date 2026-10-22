@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Style and types first — they fail fast and cost nothing.
+      - name: Format
+        run: deno fmt --check
+
+      - name: Lint
+        run: deno lint
+
+      - name: Type check
+        run: deno check src/ test/ demo/
+
+      # The acceptance suite. The refusal cases are the ones that matter:
+      # a control that fails open is worse than no control.
+      - name: Test
+        run: deno task test
+
+      # The demo is a second, coarser check that the whole flow still runs
+      # end to end. It exercises the real handler, so a broken route fails here
+      # even if a unit test does not.
+      - name: Demo
+        run: deno task demo

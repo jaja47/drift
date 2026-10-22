@@ -1,0 +1,17 @@
+{
+  "name": "warrant",
+  "version": "1.0.0",
+  "exports": "./src/server.ts",
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read --allow-write --allow-env src/server.ts",
+    "test": "deno test --allow-net --allow-read --allow-write --allow-env",
+    "demo": "deno run --allow-net --allow-env demo/walkthrough.ts"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1"
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "semiColons": true
+  }
+}

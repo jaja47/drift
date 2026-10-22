@@ -1,0 +1,1 @@
+-- One CTE per mismatch type M1–M7, unioned into the mismatches result (Step 5).

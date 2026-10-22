@@ -1,0 +1,4 @@
+ledger.jsonl
+*.jsonl
+.env
+.DS_Store

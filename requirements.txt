@@ -1,0 +1,7 @@
+duckdb
+httpx
+pyyaml
+faker
+anthropic
+streamlit
+pytest

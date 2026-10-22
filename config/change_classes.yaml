@@ -1,0 +1,2 @@
+# field/type → change_class and the approver per class. Filled in Step 5.
+# An unrecognised field or type is classed `identity`, never `routine` (CLAUDE.md hard rule 4).
