@@ -1,0 +1,392 @@
+{
+  "about": "Ground truth for Drift's synthetic data. Read by tests only — the detector must never read this file.",
+  "seed": 42,
+  "export_date": "2026-10-16",
+  "payroll_cutoff": "2026-10-09",
+  "reorg_effective_date": "2026-10-01",
+  "mismatches": [
+    {
+      "id": "M1-1",
+      "type": "M1",
+      "description": "Terminated in Workday, active in ADP",
+      "employee_ref": "W10112",
+      "associate_id": "GPTEGMZWN7",
+      "field": "worker_status",
+      "change_class": "employment_status",
+      "workday": {
+        "Worker_Status": "Terminated",
+        "Termination_Date": "2026-09-18"
+      },
+      "adp": {
+        "Position_Status": "A",
+        "Termination_Date": ""
+      },
+      "note": "Terminated before the 2026-10-09 payroll cutoff."
+    },
+    {
+      "id": "M1-2",
+      "type": "M1",
+      "description": "Terminated in Workday, active in ADP",
+      "employee_ref": "W10126",
+      "associate_id": "GTZ79WAF7Y",
+      "field": "worker_status",
+      "change_class": "employment_status",
+      "workday": {
+        "Worker_Status": "Terminated",
+        "Termination_Date": "2026-09-30"
+      },
+      "adp": {
+        "Position_Status": "A",
+        "Termination_Date": ""
+      },
+      "note": "Terminated before the 2026-10-09 payroll cutoff."
+    },
+    {
+      "id": "M1-3",
+      "type": "M1",
+      "description": "Terminated in Workday, active in ADP",
+      "employee_ref": "W10026",
+      "associate_id": "GFLKLXCBFC",
+      "field": "worker_status",
+      "change_class": "employment_status",
+      "workday": {
+        "Worker_Status": "Terminated",
+        "Termination_Date": "2026-10-13"
+      },
+      "adp": {
+        "Position_Status": "A",
+        "Termination_Date": ""
+      },
+      "note": "Terminated after the 2026-10-09 payroll cutoff."
+    },
+    {
+      "id": "M2-1",
+      "type": "M2",
+      "description": "Pay differs",
+      "employee_ref": "W10148",
+      "associate_id": "G8Z2KMC4QW",
+      "field": "pay",
+      "change_class": "compensation",
+      "workday": {
+        "Pay_Rate_Type": "Salary",
+        "Annual_Base_Pay": "154000.00",
+        "Hourly_Rate": "",
+        "Comp_Effective_Date": "2026-10-01"
+      },
+      "adp": {
+        "Rate_Type": "Salary",
+        "Annual_Salary": "147500.00",
+        "Rate_Amount": ""
+      },
+      "note": "Workday pay change effective 2026-10-01 not carried over."
+    },
+    {
+      "id": "M2-2",
+      "type": "M2",
+      "description": "Pay differs",
+      "employee_ref": "W10076",
+      "associate_id": "G27YVSZ97G",
+      "field": "pay",
+      "change_class": "compensation",
+      "workday": {
+        "Pay_Rate_Type": "Salary",
+        "Annual_Base_Pay": "67000.00",
+        "Hourly_Rate": "",
+        "Comp_Effective_Date": "2019-08-20"
+      },
+      "adp": {
+        "Rate_Type": "Salary",
+        "Annual_Salary": "60700.00",
+        "Rate_Amount": ""
+      },
+      "note": "Two digits transposed when the salary was keyed into ADP."
+    },
+    {
+      "id": "M2-3",
+      "type": "M2",
+      "description": "Pay differs",
+      "employee_ref": "W10103",
+      "associate_id": "GVRSK52E68",
+      "field": "pay",
+      "change_class": "compensation",
+      "workday": {
+        "Pay_Rate_Type": "Hourly",
+        "Annual_Base_Pay": "",
+        "Hourly_Rate": "28.20",
+        "Comp_Effective_Date": "2020-12-24"
+      },
+      "adp": {
+        "Rate_Type": "Hourly",
+        "Annual_Salary": "",
+        "Rate_Amount": "26.95"
+      },
+      "note": "ADP hourly rate is $1.25 below Workday."
+    },
+    {
+      "id": "M3-1",
+      "type": "M3",
+      "description": "Cost centre differs",
+      "employee_ref": "W10110",
+      "associate_id": "GMLX57Q3MM",
+      "field": "cost_center",
+      "change_class": "routine",
+      "workday": {
+        "Cost_Center": "CC-420 Fulfillment Network Engineering",
+        "Org_Effective_Date": "2026-10-01"
+      },
+      "adp": {
+        "Home_Department": "410"
+      },
+      "note": "Moved to CC-420 in the 2026-10-01 reorg; ADP still has 410."
+    },
+    {
+      "id": "M3-2",
+      "type": "M3",
+      "description": "Cost centre differs",
+      "employee_ref": "W10063",
+      "associate_id": "GU4MJ4Z262",
+      "field": "cost_center",
+      "change_class": "routine",
+      "workday": {
+        "Cost_Center": "CC-420 Fulfillment Network Engineering",
+        "Org_Effective_Date": "2026-10-01"
+      },
+      "adp": {
+        "Home_Department": "410"
+      },
+      "note": "Moved to CC-420 in the 2026-10-01 reorg; ADP still has 410."
+    },
+    {
+      "id": "M3-3",
+      "type": "M3",
+      "description": "Cost centre differs",
+      "employee_ref": "W10040",
+      "associate_id": "GVB8SQD8L2",
+      "field": "cost_center",
+      "change_class": "routine",
+      "workday": {
+        "Cost_Center": "CC-420 Fulfillment Network Engineering",
+        "Org_Effective_Date": "2026-10-01"
+      },
+      "adp": {
+        "Home_Department": "410"
+      },
+      "note": "Moved to CC-420 in the 2026-10-01 reorg; ADP still has 410."
+    },
+    {
+      "id": "M3-4",
+      "type": "M3",
+      "description": "Cost centre differs",
+      "employee_ref": "W10149",
+      "associate_id": "GR4WTEZHDM",
+      "field": "cost_center",
+      "change_class": "routine",
+      "workday": {
+        "Cost_Center": "CC-420 Fulfillment Network Engineering",
+        "Org_Effective_Date": "2026-10-01"
+      },
+      "adp": {
+        "Home_Department": "410"
+      },
+      "note": "Moved to CC-420 in the 2026-10-01 reorg; ADP still has 410."
+    },
+    {
+      "id": "M3-5",
+      "type": "M3",
+      "description": "Cost centre differs",
+      "employee_ref": "W10015",
+      "associate_id": "G3ZLBK6CJE",
+      "field": "cost_center",
+      "change_class": "routine",
+      "workday": {
+        "Cost_Center": "CC-420 Fulfillment Network Engineering",
+        "Org_Effective_Date": "2026-10-01"
+      },
+      "adp": {
+        "Home_Department": "410"
+      },
+      "note": "Moved to CC-420 in the 2026-10-01 reorg; ADP still has 410."
+    },
+    {
+      "id": "M4-1",
+      "type": "M4",
+      "description": "Manager differs",
+      "employee_ref": "W10198",
+      "associate_id": "G49ZDLEV3J",
+      "field": "manager",
+      "change_class": "routine",
+      "workday": {
+        "Manager_Employee_ID": "W10055",
+        "Org_Effective_Date": "2026-10-01"
+      },
+      "adp": {
+        "Reports_To_Associate_ID": "GBYEYRGXJC"
+      },
+      "note": "New manager in the 2026-10-01 reorg; ADP has the old one."
+    },
+    {
+      "id": "M4-2",
+      "type": "M4",
+      "description": "Manager differs",
+      "employee_ref": "W10191",
+      "associate_id": "GC5F5NKSWE",
+      "field": "manager",
+      "change_class": "routine",
+      "workday": {
+        "Manager_Employee_ID": "W10055",
+        "Org_Effective_Date": "2026-10-01"
+      },
+      "adp": {
+        "Reports_To_Associate_ID": "GBYEYRGXJC"
+      },
+      "note": "New manager in the 2026-10-01 reorg; ADP has the old one."
+    },
+    {
+      "id": "M4-3",
+      "type": "M4",
+      "description": "Manager differs",
+      "employee_ref": "W10111",
+      "associate_id": "G53BN652AP",
+      "field": "manager",
+      "change_class": "routine",
+      "workday": {
+        "Manager_Employee_ID": "W10005",
+        "Org_Effective_Date": "2026-08-17"
+      },
+      "adp": {
+        "Reports_To_Associate_ID": "GBS4UKNXQ2"
+      },
+      "note": "Manager changed 2026-08-17; ADP still reports to the previous one."
+    },
+    {
+      "id": "M5-1",
+      "type": "M5",
+      "description": "In Workday, missing from ADP",
+      "employee_ref": "W10199",
+      "associate_id": null,
+      "field": "record",
+      "change_class": "employment_status",
+      "workday": {
+        "Worker_Status": "Active",
+        "Hire_Date": "2026-10-05"
+      },
+      "adp": null,
+      "note": "New hire (2026-10-05) not set up in payroll."
+    },
+    {
+      "id": "M5-2",
+      "type": "M5",
+      "description": "In Workday, missing from ADP",
+      "employee_ref": "W10200",
+      "associate_id": null,
+      "field": "record",
+      "change_class": "employment_status",
+      "workday": {
+        "Worker_Status": "Active",
+        "Hire_Date": "2026-10-14"
+      },
+      "adp": null,
+      "note": "New hire (2026-10-14) not set up in payroll."
+    },
+    {
+      "id": "M6-1",
+      "type": "M6",
+      "description": "In ADP, missing from Workday",
+      "employee_ref": "ADP:GWQG9KXERY",
+      "associate_id": "GWQG9KXERY",
+      "field": "record",
+      "change_class": "identity",
+      "workday": null,
+      "adp": {
+        "Position_Status": "A",
+        "File_Number": "001177"
+      },
+      "note": "Active in ADP with no Workday worker behind it — possible ghost."
+    },
+    {
+      "id": "M7-1",
+      "type": "M7",
+      "description": "Legal name differs",
+      "employee_ref": "W10193",
+      "associate_id": "G4KKGGGUY4",
+      "field": "legal_name",
+      "change_class": "identity",
+      "workday": {
+        "Legal_First_Name": "Daniel",
+        "Legal_Last_Name": "Kennedy"
+      },
+      "adp": {
+        "First_Name": "Daniel",
+        "Last_Name": "Graham"
+      },
+      "note": "Legal surname changed in Workday; ADP has the previous one."
+    }
+  ],
+  "decoys": [
+    {
+      "id": "D1-1",
+      "type": "D1",
+      "description": "Email case / whitespace only",
+      "employee_ref": "W10022",
+      "associate_id": "G7JFEV3844",
+      "field": "work_email",
+      "workday": {
+        "Work_Email": "angela.cohen@northpine.example"
+      },
+      "adp": {
+        "Work_Email": "Angela.Cohen@northpine.example"
+      },
+      "note": "Same address, different case."
+    },
+    {
+      "id": "D1-2",
+      "type": "D1",
+      "description": "Email case / whitespace only",
+      "employee_ref": "W10025",
+      "associate_id": "GQYUFSNTJV",
+      "field": "work_email",
+      "workday": {
+        "Work_Email": "shawn.mckay@northpine.example"
+      },
+      "adp": {
+        "Work_Email": "shawn.mckay@northpine.example "
+      },
+      "note": "Same address with a trailing space."
+    },
+    {
+      "id": "D2-1",
+      "type": "D2",
+      "description": "Hourly rate × 2080 = annual salary",
+      "employee_ref": "W10137",
+      "associate_id": "GFRUBVPN3U",
+      "field": "pay",
+      "workday": {
+        "Pay_Rate_Type": "Hourly",
+        "Annual_Base_Pay": "",
+        "Hourly_Rate": "24.98"
+      },
+      "adp": {
+        "Rate_Type": "Hourly",
+        "Annual_Salary": "51958.00",
+        "Rate_Amount": ""
+      },
+      "note": "ADP holds the annualised hourly rate, rounded to whole dollars."
+    },
+    {
+      "id": "D3-1",
+      "type": "D3",
+      "description": "Preferred name ≠ legal first name",
+      "employee_ref": "W10054",
+      "associate_id": "G5WF3GMJ8W",
+      "field": "preferred_name",
+      "workday": {
+        "Legal_First_Name": "Charles",
+        "Preferred_Name": "Charlie"
+      },
+      "adp": {
+        "First_Name": "Charles"
+      },
+      "note": "Preferred name set in Workday; ADP has the legal name, as it should."
+    }
+  ]
+}

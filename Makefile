@@ -17,12 +17,12 @@ setup:
 	cd warrant && deno install
 
 data:
-	$(PY) scripts/generate_data.py
+	$(PY) -m scripts.generate_data
 
 # Python tests, then Warrant's full suite. Neither needs a running Warrant: the integration
 # tests (Step 8) start their own on a free port.
 test:
-	$(PY) -m pytest -q tests
+	$(PY) -m pytest -q
 	cd warrant && deno task test
 
 warrant:

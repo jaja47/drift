@@ -7,7 +7,7 @@
 | | Step | Day | State |
 |---|---|---|---|
 | ✅ | 1 · Scaffold | 1 | done 2026-10-21 |
-| ⬜ | 2 · Synthetic data generator | 1 | |
+| ✅ | 2 · Synthetic data generator | 1 | done 2026-10-24 |
 | ⬜ | 3 · Warrant policy | 1 | |
 | ⬜ | 4 · Connectors + normalisation | 2 | |
 | ⬜ | 5 · Detection | 2 | |
@@ -45,8 +45,50 @@
   and verifies the chain intact.
 - With something already on :8000, `dev.sh` refuses to start (exit 1).
 
+## Step 2 · Synthetic data generator — what was done and verified
+
+- `scripts/generate_data.py` (seed 42, Faker pinned to 40.43.0) writes all six files in PLAN.md §2
+  to `data/source/`. The fictional company is Northpine and emails are `@northpine.example` (a
+  reserved domain). It has 200 Workday workers, 199 ADP rows (198 matched + 1 ghost), 12 cost
+  centres, 25 managers, 4 locations (2 CA, 2 US), 155 salaried / 45 hourly, and 9 terminated /
+  4 on leave.
+- **The story.** On 2026-10-01 Supply Chain Analytics (CC-410) was reorganised:
+  - five analysts' cost moved to CC-420 and their manager stayed the same (in Workday, cost centre
+    and supervisory org are separate);
+  - two analysts moved to the other team lead;
+  - none of the seven changes reached ADP.
+
+  Every other planted mismatch is an isolated defect: M1 with one termination (2026-10-13) after
+  the cutoff, an M2 Workday raise effective 1 Oct, a transposed salary, an hourly rate $1.25 off,
+  one manager change from August, two October new hires, a ghost in DC Ops, and a surname change.
+- `PAYROLL_CUTOFF = 2026-10-09` lives in `drift/constants.py`, shared by the generator and Drift.
+- `tests/test_data.py` (11 tests).
+
+**Verified by running:**
+- `make data` twice → identical bytes (sha1 of every file compared). Also identical under
+  `PYTHONHASHSEED` = 0, 1, 12345 and random.
+- `make test` → pytest **14 passed**; Warrant **43 passed**.
+- The tests assert:
+  - **Counts and classes:** 18 mismatches and 4 decoys, with the per-type counts and classes from
+    PLAN.md §2 and one plant per person.
+  - **Planted rows exist:** every planted row is in the exports with the quoted values. M5 rows are
+    absent from ADP and the crosswalk; M6 is absent from Workday and the crosswalk.
+  - **No unplanted differences:** an independent comparison of all 198 matched pairs (status,
+    termination date, pay ±$1, rate type, cost centre, location, manager, legal name, email) finds
+    exactly the planted mismatches.
+  - **Decoys:** each decoy differs in its raw values, and no other row does.
+  - **Reorg date:** `2026-10-01` appears as an org date only on the 7 reorg rows.
+  - **Cutoff:** exactly one M1 falls after the cutoff.
+  - **No accidental patterns:** outside the reorg, no cost centre, org date or comp date is shared
+    by ≥3 mismatches, and fewer than 3 mismatches fall after the cutoff.
+  - **Committed data is current:** `data/source/` matches a fresh generation.
+- **The tests can fail:** six hand-made errors were written into a scratch copy (a location, a
+  salary, an email, a case-only email change on a clean row, a preferred name, a stray reorg date)
+  and each was caught by the expected test.
+
 ## Deviations from PLAN.md / BUILD.md
 
+**Step 1**
 - **`dev.sh` runs `deno run …` directly, not `deno task dev`.** The flags are the same as the `dev`
   task. Running deno directly makes the PID that `dev.sh` tracks the server itself, so the
   `kill` on exit reaches it.
@@ -63,21 +105,51 @@
   change `deno.lock`.
 - **`make demo` runs `reset` first**, as Step 11 describes.
 
+**Step 2**
+- **`requirements.txt` pins `faker==40.43.0`** (the human asked for this). Everything else is
+  still unpinned.
+- **New module `drift/constants.py`** holds `PAYROLL_CUTOFF`. It isn't in BUILD.md's layout. The
+  detector may use it; it is a business date, not ground truth.
+- **`make data` runs `python -m scripts.generate_data`**, so that the generator can import
+  `drift.constants`. This needed an empty `scripts/__init__.py`. A new `pytest.ini` sets
+  `testpaths = tests` and `pythonpath = .`.
+- **The generated `data/source/` files are committed.** A test fails if they go stale.
+- **planted.json format (Step 5 must match it or map to it).** Each entry has:
+  - `type`: `M1`–`M7` or `D1`–`D3`;
+  - `employee_ref`: a Workday ID, or `ADP:<Associate_ID>` for M6;
+  - `associate_id`;
+  - `field`: one of `worker_status`, `pay`, `cost_center`, `manager`, `record` (M5/M6),
+    `legal_name`, `work_email`, `preferred_name`;
+  - `change_class` (mismatches only);
+  - the raw `workday` / `adp` column values;
+  - a `note`.
+- **How the data is represented** (anything else would be an unplanted difference):
+  - a salaried row has annual pay only, and an hourly row has a rate only, in both systems;
+  - dates are ISO in both systems;
+  - `Preferred_Name` equals `Legal_First_Name` for everyone except D3;
+  - emails are built from legal names, and M7's email keeps the old surname;
+  - ADP has no currency column.
+- **Added for realism:** 6 workers terminated in both systems and 4 on leave in both. They are
+  consistent, and Step 5 must not flag them.
+- **Reading of "two [M4] are also part of the reorg":** the 5 M3 and 2 M4 reorg mismatches are
+  7 different people, so each planted person has exactly one difference.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
   terminal does. Nobody has yet pressed Ctrl-C in a real terminal.
 - **Tested on macOS only** (bash 3.2, BSD tools). Not run on Linux.
-- **`make data`, `make run`, `make app` and `make demo` exist but are not built yet.** `data`
-  fails because `scripts/generate_data.py` doesn't exist yet. `run` and `demo` reach the `cli.py`
-  stub, which exits 2.
+- **`make run`, `make app` and `make demo` exist but are not built yet.** `run` and `demo` reach
+  the `cli.py` stub, which exits 2. (`make data` works as of Step 2.)
+- **Step 2:** "no accidental extras" is proven against the test's own comparison, not the real
+  detector, which Steps 4–5 still have to build to hit 18/18. The mutation checks were a one-off
+  script and are not in the suite.
+- **Step 2:** D1-2's ADP email ends in a trailing space inside the CSV. If Step 4's CSV reader
+  trims whitespace silently, that decoy stops testing anything (it would still pass). Step 4
+  should trim deliberately, in `normalize.py`.
 
 ## Open questions (for later steps — nothing decided yet)
 
-- **Step 2:** `requirements.txt` is unpinned, as BUILD.md lists it (installed: Faker 40.43.0,
-  duckdb 2.0.0). Faker's output for a given seed can change between Faker versions. "Same bytes
-  twice" will hold on one machine, but a fresh clone could produce different names. Consider
-  pinning Faker.
 - **Step 8:** `make run` and `make app` each start their own Warrant, with an in-memory store by
   default. An approval held during `run` would not exist in the Warrant that `app` starts. Choose
   one: those targets use `--persist`, or the whole flow runs within one Warrant lifetime, as
@@ -85,4 +157,4 @@
 
 ## Next step
 
-Step 2 · Synthetic data generator.
+Step 3 · Warrant policy (in `./warrant/`; log every change in `warrant/VENDORED.md`).
