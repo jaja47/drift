@@ -1,2 +1,45 @@
-# field/type → change_class and the approver per class. Filled in Step 5.
-# An unrecognised field or type is classed `identity`, never `routine` (CLAUDE.md hard rule 4).
+# Which class each kind of correction belongs to. classify.py reads this file; a person reviews
+# it. The LLM never sees or changes it, and nothing it writes can change what happens.
+#
+#   routine            a warrant is issued and the fix is applied automatically
+#   compensation       held until a named human approves
+#   employment_status  held until a named human approves
+#   identity           held until a named human approves — and the class of anything not listed
+#
+# A type is only recognised together with the field listed for it. An unknown type, or a known
+# type carrying a different field, is classed `identity`, never `routine`.
+#
+# classify.py also refuses to load this file if a pay, status, record or name field is marked
+# routine, so an edit here cannot quietly send a pay change through unreviewed.
+#
+# Approvers per class are added in Step 8.
+
+types:
+  M1:
+    field: worker_status
+    class: employment_status
+    label: Terminated in Workday, still active in ADP
+  M2:
+    field: pay
+    class: compensation
+    label: Pay differs
+  M3:
+    field: cost_center
+    class: routine
+    label: Cost centre differs
+  M4:
+    field: manager
+    class: routine
+    label: Manager differs
+  M5:
+    field: record
+    class: employment_status
+    label: In Workday, missing from ADP
+  M6:
+    field: record
+    class: identity
+    label: In ADP, missing from Workday — possible ghost record
+  M7:
+    field: legal_name
+    class: identity
+    label: Legal name differs

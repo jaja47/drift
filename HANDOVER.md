@@ -10,7 +10,7 @@
 | ✅ | 2 · Synthetic data generator | 1 | done 2026-10-24 |
 | ✅ | 3 · Warrant policy | 1 | done 2026-10-24 |
 | ✅ | 4 · Connectors + normalisation | 2 | done 2026-10-24 |
-| ⬜ | 5 · Detection | 2 | |
+| ✅ | 5 · Detection | 2 | done 2026-10-24 |
 | ⬜ | 6 · **GATE A** | 2 | |
 | ⬜ | 7 · Explanations + patterns | 3 | |
 | ⬜ | 8 · Governance + apply | 3 | |
@@ -183,6 +183,62 @@
   Each was caught by the tests for that rule. In every run the two `test_scaffold` tests also
   failed, only because the scratch copy has no `warrant/`.
 
+## Step 5 · Detection — what was done and verified
+
+- `drift/detect.sql` has two named sections:
+  - `schema`: the `pairs` table and an exact `annual()` money macro;
+  - `mismatches`: one CTE per type M1–M7, `UNION ALL BY NAME`, then the fingerprint
+    `sha256(type|employee_ref|field|workday_value|adp_value)`.
+
+  The ±$1 tolerance is passed in as `$pay_tolerance_cents` from `normalize.PAY_TOLERANCE_CENTS`,
+  so it isn't written twice.
+- `drift/detect.py` loads the `Pair`s into an in-memory DuckDB (no SQL strings in Python) and
+  returns `Mismatch` rows with BUILD.md's columns. `detect_sources()` runs the whole of detection;
+  the CLI and the page both call it.
+- `drift/classify.py` + `config/change_classes.yaml`: type + field → class and a plain label.
+  Anything not listed → `identity`. The loader refuses a config that makes a pay, status, record
+  or name field routine, or that uses an unknown class.
+- `python -m drift.cli detect` prints the summary and the table, for GATE A. `run`, `approve`,
+  `sync` and `demo` print "not built yet" and exit 2.
+- **Result on the committed data:** 201 people compared, 18 mismatches (8 routine, 3
+  compensation, 5 employment_status, 2 identity). The 7 reorg rows carry org date 2026-10-01.
+
+**Verified by running:**
+- `make test` → pytest **111 passed**; Warrant 56 passed.
+- **Scoring against planted.json: 18/18 found, 0 decoys flagged, 0 extras.**
+- **No compensation, status, missing-record or name mismatch is routine.** That's 10 rows, each
+  checked. Only `cost_center` and `manager` are routine in the shipped config.
+- **Unknown input is classed `identity`:** an unknown type, or a known type with another field.
+  The loader refuses pay, status, record or name marked routine, an unknown class, a missing key,
+  and a missing table.
+- **Output format:**
+  - fingerprints equal the documented hash, are unique, and are stable across two runs;
+  - `employee_ref` is always `W#####` or `ADP:G…`, never a name;
+  - `*_source` points back to both rows (`None` on the missing side for M5/M6);
+  - effective dates are set only on M2 (comp) and M3/M4 (org).
+- **The SQL schema matches the `Pair` dataclass**, in column order and types.
+- **Each rule on hand-built pairs:**
+  - M1 for terminated vs active, leave or unrecognised (not vs terminated);
+  - M2 at exactly +$1 (no), +$1.01 and −$1.01 (yes), one side missing (yes), both missing (no);
+  - M3, including an unmapped cost centre;
+  - M4, including an unknown ADP manager and a missing one;
+  - M5 (not for a terminated Workday-only worker);
+  - M6 (even when terminated);
+  - M7;
+  - two disagreements on one person give two rows.
+- `tests/test_rules.py` now also checks two rules: no SQL keywords in `drift/*.py`, and
+  `classify.py` imports neither the explainer nor an LLM client.
+- **The tests can fail:** nine deliberate breakages were each caught:
+  - M7 left out of the union;
+  - M1 only when ADP says active;
+  - a tolerance of 0 written into the SQL;
+  - M5 including terminated workers;
+  - M3 comparing names with codes;
+  - a fingerprint without the ADP value;
+  - unknown → routine;
+  - the config making M2 routine;
+  - the never-routine guard dropping pay.
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -263,6 +319,29 @@
   to the other. That fallback is how D2 (ADP holding an hourly rate annualised) normalises.
 - **Added `tests/test_rules.py`** for CLAUDE.md rules that can be checked mechanically.
 
+**Step 5**
+- **Each rule is a little broader than its one-line description in PLAN.md:**
+  - **M1** fires when Workday says terminated and ADP says anything else (active, leave or an
+    unrecognised value), not only "active".
+  - **M5** skips a terminated Workday worker with no payroll record, because that isn't a payroll
+    gap.
+  - **M6** fires whatever the ADP status.
+  - **M2** also fires when only one side has a pay figure.
+- **The effective-date columns are filled only where they explain the mismatch**: org date on
+  M3/M4, comp date on M2, and NULL elsewhere. That way a shared date means something for Step 7's
+  patterns.
+- **How values are shown:**
+  - pay is annualised, e.g. `154000.00/yr`;
+  - cost centre shows Workday's full name against ADP's code;
+  - manager shows both sides as Workday IDs;
+  - status includes the termination date;
+  - M5 includes the hire date.
+- **Mismatch type labels live in `change_classes.yaml`**, next to the classes, so the
+  human-reviewed file is the one catalogue of types.
+- **`detect.sql` also holds the table schema and a money macro.** `detect.py` reads it by `-- name:`
+  section and inserts rows through DuckDB's relation API, so no SQL sits in Python.
+- **Approvers are not in `change_classes.yaml` yet.** That's Step 8.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
@@ -300,7 +379,18 @@
   principal, but nobody can then approve it, and it expires after 24 h. That fails closed, but it
   leaves the request stuck. Drift should refuse, when it loads its config, any approver equal to
   `DRIFT_PRINCIPAL`, rather than relying on Warrant to catch it.
+- **GATE A (extra question):** detection reports only the 7 planned types. Normalised fields that
+  no type covers are not reported even if they differ:
+  - location;
+  - email beyond case or whitespace;
+  - rate type;
+  - status cases other than "terminated vs not", such as active in Workday but terminated in ADP;
+  - termination date when both sides say terminated.
+
+  Should those become an extra catch-all type classed `identity`, or stay out of scope (and be
+  listed under "What this is not")?
 
 ## Next step
 
-Step 5 · Detection (`detect.sql`, `detect.py`, `classify.py`, `config/change_classes.yaml`).
+Step 6 · **GATE A** — print `python -m drift.cli detect`, ask BUILD.md's three questions (plus the
+extra one above), and wait for answers.
