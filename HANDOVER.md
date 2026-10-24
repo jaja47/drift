@@ -9,7 +9,7 @@
 | ✅ | 1 · Scaffold | 1 | done 2026-10-21 |
 | ✅ | 2 · Synthetic data generator | 1 | done 2026-10-24 |
 | ✅ | 3 · Warrant policy | 1 | done 2026-10-24 |
-| ⬜ | 4 · Connectors + normalisation | 2 | |
+| ✅ | 4 · Connectors + normalisation | 2 | done 2026-10-24 |
 | ⬜ | 5 · Detection | 2 | |
 | ⬜ | 6 · **GATE A** | 2 | |
 | ⬜ | 7 · Explanations + patterns | 3 | |
@@ -124,6 +124,65 @@
   - cleanup purpose → 422;
   - `/verify` intact.
 
+## Step 4 · Connectors and normalisation — what was done and verified
+
+- `drift/connectors/base.py` is the contract:
+  - the `WorkerSource` (`list_workers`) and `PayrollSource` (`list_payroll`) protocols;
+  - `SourceRow` (raw values + `source_ref`);
+  - `Reference` (crosswalk + cost-centre and location maps);
+  - the columns Drift reads;
+  - `SourceDataError`;
+  - a docstring saying where a Workday RaaS report and ADP's Workers API would plug in.
+- `drift/connectors/csv_source.py` holds `CsvWorkdaySource`, `CsvAdpSource` and
+  `read_reference()`. Files are opened read-only and values come back exactly as written.
+- `drift/normalize.py` turns the rows into one `Pair` per person (201: 198 matched, 2
+  `workday_only`, 1 `adp_only`). Each rule is a small public function. `pay_matches` applies the
+  ±$1 rule.
+
+**Verified by running:**
+- `make test` → pytest **63 passed**; Warrant 56 passed.
+- **Unit tests per rule:**
+  - status (both vocabularies, plus unrecognised values);
+  - dates and exact money in cents;
+  - hourly × 2080, with the annual fallback;
+  - the ±$1 tolerance, including the exactly-$1 edge;
+  - email case and whitespace;
+  - legal name only (preferred ignored, case- and whitespace-insensitive);
+  - cost-centre and location maps (unmapped is kept and marked);
+  - manager through the crosswalk (unknown → `ADP:<id>`).
+- **Join tests:**
+  - matched, Workday-only and ADP-only rows are all kept;
+  - a crosswalk entry pointing at a missing row does not invent a match;
+  - a duplicate ID stops the run;
+  - a malformed value names its row and column.
+- **Real exports:**
+  - **all 4 decoys normalise to equal**, and each really differed before normalisation;
+  - **none of the 16 matched-pair planted mismatches is normalised away**;
+  - M5 rows come out `workday_only` and M6 `adp_only`;
+  - no marker values appear in the clean data.
+- **Connectors:**
+  - they meet the protocols;
+  - they read the committed exports;
+  - D1-2's trailing space survives reading;
+  - reading leaves every source file's bytes and mtime unchanged;
+  - a BOM is accepted;
+  - a missing column, a wrong field count, an empty key, a duplicate mapping key, and a crosswalk
+    mapping two ways are each refused.
+- `tests/test_rules.py`: no file under `drift/` mentions `planted` (CLAUDE.md: the detector never
+  reads planted.json).
+- **The tests can fail:** ten deliberate breakages, each run in a scratch copy:
+  - email not lower-cased, and not trimmed;
+  - no pay tolerance;
+  - 2000 hours instead of 2080;
+  - the preferred name compared;
+  - an unmapped code, or an unknown manager, becoming None;
+  - ADP-only rows dropped;
+  - a duplicate ID resolved "last wins";
+  - the reader trimming values.
+
+  Each was caught by the tests for that rule. In every run the two `test_scaffold` tests also
+  failed, only because the scratch copy has no `warrant/`.
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -183,6 +242,27 @@
 - `warrant/VENDORED.md` was reformatted with `deno fmt`; the Step 1 table had failed
   `deno fmt --check`.
 
+**Step 4**
+- **The CSV readers live in `connectors/csv_source.py`, not in `base.py`.** BUILD.md puts the
+  protocols in `base.py` and doesn't say where the CSV classes go.
+- **A `Reference` (crosswalk + two maps) is part of the contract.** BUILD.md names only the two
+  source protocols, but the maps need a home too.
+- **Names are also compared case-insensitively, with whitespace collapsed** (Unicode NFC).
+  BUILD.md says only "legal name only". Accents are not stripped, so "José" and "Jose" still
+  differ.
+- **Values normalisation can't map are kept with a marker** (`unrecognised:`, `unmapped:`,
+  `ADP:<id>`), so they compare unequal and get flagged. They are never dropped or guessed. This is
+  the normalisation version of "unknown → strictest".
+- **The run stops with `SourceDataError` on:**
+  - a duplicate ID;
+  - a crosswalk mapping one associate to two employees;
+  - a mapping key listed twice;
+  - a malformed date or amount;
+  - a malformed CSV.
+- **Pay uses the figure that matches the declared rate type.** If that one is blank, it falls back
+  to the other. That fallback is how D2 (ADP holding an hourly rate annualised) normalises.
+- **Added `tests/test_rules.py`** for CLAUDE.md rules that can be checked mechanically.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
@@ -199,6 +279,12 @@
 - **Step 3:** the new Warrant tests call the request handler in-process, as the existing ones do.
   Against the real process, only the manual run above was done. Step 8's integration tests are the
   real end-to-end check.
+- **Step 4:** the ±$1 rule exists in Python (`pay_matches`), and Step 5's `detect.sql` will need
+  the same comparison. Step 5 should pass `PAY_TOLERANCE_CENTS` into the SQL as a parameter rather
+  than writing 100 again; the 18/18 + 0-decoy test is what proves the two agree. The mutation
+  checks were a one-off script.
+- **Step 4:** a `Pair` carries names and emails because M7 and D1 need them. Step 7 must build the
+  LLM payload from an explicit allow-list, never from a whole `Pair`.
 
 ## Open questions (for later steps — nothing decided yet)
 
@@ -217,4 +303,4 @@
 
 ## Next step
 
-Step 4 · Connectors and normalisation.
+Step 5 · Detection (`detect.sql`, `detect.py`, `classify.py`, `config/change_classes.yaml`).
