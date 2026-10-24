@@ -79,7 +79,7 @@ Deno.test("health and policy list are open", async () => {
   assertEquals((await call("GET", "/health", undefined, false)).status, 200);
   const p = await call("GET", "/policies", undefined, false);
   assertEquals(p.status, 200);
-  assertEquals(p.body.policies.length, 2);
+  assertEquals(p.body.policies.length, 3);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -515,6 +515,137 @@ Deno.test("verification detects a removed event", async () => {
   const gapped = [all[0], all[2]]; // the middle event is gone
   const result = await verifyChain(gapped);
   assertEquals(result.verified, false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// hr-record-correction — the policy Drift's reconciler runs under
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HR_ROUTINE = {
+  policy_id: "hr-record-correction",
+  actor: "drift-reconciler@v0.1.0",
+  principal: "Dana Okafor",
+  system: "adp",
+  action: "update",
+  object: "W10042",
+  field: "Home_Department",
+  change_class: "routine",
+  purpose: "Set W10042's ADP home department to 420 to match its Workday cost centre, " +
+    "changed in the 2026-10-01 reorg",
+  sources: [
+    "workday_workers.csv#Employee_ID=W10042",
+    "adp_payroll.csv#Associate_ID=G3K7Q2ZP9X",
+  ],
+};
+
+Deno.test("hr: a routine correction is issued a warrant", async () => {
+  const { call } = client();
+  const r = await call("POST", "/warrant", HR_ROUTINE);
+  assertEquals(r.status, 200);
+  assertEquals(r.body.state, "issued");
+  assertEquals(r.body.policy, "hr-record-correction@1.0.0");
+  assert(r.body.warrant_id.startsWith("wrt_"));
+
+  const committed = await call("POST", "/warrant/commit", {
+    warrant_id: r.body.warrant_id,
+    result: { applied: true },
+  });
+  assertEquals(committed.status, 200);
+});
+
+for (const change_class of ["compensation", "employment_status", "identity"]) {
+  Deno.test(`hr: change_class:${change_class} is held — 202, approval_id, no warrant_id`, async () => {
+    const { call, store } = client();
+    const r = await call("POST", "/warrant", {
+      ...HR_ROUTINE,
+      field: "Annual_Salary",
+      change_class,
+      purpose: `Correct W10042's ADP ${change_class} field so it matches the Workday record`,
+      approval_from: "Priya Raman",
+    });
+    assertEquals(r.status, 202);
+    assertEquals(r.body.state, "pending_approval");
+    assertEquals(r.body.because, `change_class:${change_class}`);
+    assertEquals(r.body.requested_of, "Priya Raman");
+    assert(r.body.approval_id.startsWith("apr_"));
+    assertEquals(r.body.warrant_id, undefined, "a held correction must not get a warrant_id");
+    assertEquals((await store.all()).map((e) => e.kind), ["warrant.requested"]);
+  });
+}
+
+for (const action of ["create", "deactivate"]) {
+  Deno.test(`hr: action:${action} is held even when it arrives labelled routine`, async () => {
+    const { call } = client();
+    const r = await call("POST", "/warrant", {
+      ...HR_ROUTINE,
+      action,
+      field: "Position_Status",
+      purpose: `Record the ${action} for W10042 in ADP so payroll matches its Workday status`,
+      approval_from: "Priya Raman",
+    });
+    assertEquals(r.status, 202);
+    assertEquals(r.body.because, `action:${action}`);
+    assertEquals(r.body.warrant_id, undefined);
+  });
+}
+
+const HR_REFUSALS: Array<[string, Record<string, unknown>, string]> = [
+  ["one source only", { ...HR_ROUTINE, sources: [HR_ROUTINE.sources[0]] }, "sources"],
+  ["a generic cleanup purpose", {
+    ...HR_ROUTINE,
+    purpose: "Routine data cleanup across HR systems",
+  }, "purpose"],
+  ["a housekeeping purpose", {
+    ...HR_ROUTINE,
+    purpose: "Quarterly housekeeping to keep records in sync",
+  }, "purpose"],
+  ["a purpose too short to say anything", { ...HR_ROUTINE, purpose: "data cleanup" }, "purpose"],
+  ["an unknown change_class", { ...HR_ROUTINE, change_class: "minor" }, "change_class"],
+  ["a held class that names nobody to ask", {
+    ...HR_ROUTINE,
+    change_class: "compensation",
+  }, "approval_from"],
+];
+
+for (const [name, payload, expectedField] of HR_REFUSALS) {
+  Deno.test(`hr: refuses ${name}`, async () => {
+    const { call, store } = client();
+    const r = await call("POST", "/warrant", payload);
+    assertEquals(r.status, 422, `expected 422, got ${r.status}`);
+    assert(
+      r.body.violations.some((v: { field: string }) => v.field === expectedField),
+      `expected a violation on '${expectedField}', got ${JSON.stringify(r.body.violations)}`,
+    );
+    assertEquals(r.body.warrant_id, undefined);
+    assertEquals(await store.all(), [], "a refused correction writes no event");
+  });
+}
+
+Deno.test("hr: REFUSES an approver who is the principal of the run", async () => {
+  const { call, store } = client();
+  const { body: held } = await call("POST", "/warrant", {
+    ...HR_ROUTINE,
+    field: "Position_Status",
+    change_class: "employment_status",
+    purpose: "Deactivate W10042 in ADP; Workday shows the worker terminated on 2026-09-18",
+    approval_from: "Dana Okafor", // the principal, asked to approve their own run
+  });
+
+  for (const approver of ["Dana Okafor", "  dana okafor "]) {
+    const r = await call("POST", "/approval/decide", {
+      approval_id: held.approval_id,
+      approver,
+      decision: "approved",
+    });
+    assertEquals(r.status, 422);
+    assert(
+      r.body.violations.some((v: { message: string }) => v.message.includes("second person")),
+      `expected a self-approval violation, got ${JSON.stringify(r.body.violations)}`,
+    );
+    assertEquals(r.body.warrant_id, undefined);
+  }
+  const kinds = (await store.all()).map((e) => e.kind);
+  assertEquals(kinds, ["warrant.requested"], "no issue event after a refused self-approval");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

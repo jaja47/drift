@@ -22,7 +22,7 @@ do not control.
 
 ```
 deno task demo     # narrated walkthrough, no setup
-deno task test     # 43 tests, no dependencies
+deno task test     # 56 tests, no dependencies
 deno task dev      # http://localhost:8000
 ```
 
@@ -94,9 +94,10 @@ export const CONTACT_DATA_TOUCH: Policy = {
 };
 ```
 
-Adding a governance rule means adding an object. The server does not change. Two policies ship as
-working examples — one for contact-data actions, one for publishing model-generated content —
-because a policy engine that has only ever run one policy is not a policy engine.
+Adding a governance rule means adding an object. The server does not change. Three policies ship as
+working examples — one for contact-data actions, one for publishing model-generated content, and one
+for correcting employee records in a downstream HR system (`hr-record-correction`, added for Drift)
+— because a policy engine that has only ever run one policy is not a policy engine.
 
 ### 3. Two of the field types encode judgement, not syntax
 
@@ -229,11 +230,11 @@ Edit `FILLER_PHRASES`.
 ## Layout
 
 ```
-src/policy.ts      policy types, the generic validator, two example policies
+src/policy.ts      policy types, the generic validator, three example policies
 src/chain.ts       canonical JSON, hashing, chain verification
 src/store.ts       Store interface — append-only, no update path
 src/server.ts      HTTP surface
-test/              43 acceptance tests, zero dependencies
+test/              56 acceptance tests, zero dependencies
 demo/walkthrough   narrated run: refusal, governed action, tamper detection
 adapters/          integration notes for three deployment shapes
 ```

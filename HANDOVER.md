@@ -8,7 +8,7 @@
 |---|---|---|---|
 | ✅ | 1 · Scaffold | 1 | done 2026-10-21 |
 | ✅ | 2 · Synthetic data generator | 1 | done 2026-10-24 |
-| ⬜ | 3 · Warrant policy | 1 | |
+| ✅ | 3 · Warrant policy | 1 | done 2026-10-24 |
 | ⬜ | 4 · Connectors + normalisation | 2 | |
 | ⬜ | 5 · Detection | 2 | |
 | ⬜ | 6 · **GATE A** | 2 | |
@@ -86,6 +86,44 @@
   salary, an email, a case-only email change on a clean row, a preferred name, a stray reorg date)
   and each was caught by the expected test.
 
+## Step 3 · Warrant policy — what was done and verified
+
+- In `./warrant/` (the copy; `~/Documents/warrant` is untouched, still clean at `f595c14`):
+  - `HR_RECORD_CORRECTION` is in `src/policy.ts`, registered in `POLICIES`;
+  - 13 tests are in `test/acceptance_test.ts`;
+  - the README counts and the "policies ship" sentence are updated;
+  - every change is logged in `warrant/VENDORED.md`.
+- **Two approved deviations from PLAN.md §3**, both asked before being made:
+  - **Its own filler list, `HR_FILLER_PHRASES`.** It contains the shared phrases plus
+    record-correction filler: "data cleanup", "clean up", "housekeeping", "data hygiene", "tidy
+    up", "routine maintenance", "keep records/systems in sync". The shared list is outreach-only,
+    so a long "routine data cleanup…" purpose would otherwise have been issued a warrant.
+  - **A backstop:** `action: create` and `action: deactivate` are always held, whatever the
+    `change_class`.
+
+**Verified by running:**
+- `make test` → pytest 14 passed; Warrant **56 passed** (43 existing + 13 new).
+- Warrant's own CI sequence in `warrant/` → `deno fmt --check`, `deno lint`,
+  `deno check src/ test/ demo/`, `deno task test` and `deno task demo` all exit 0.
+- The new tests cover:
+  - a routine correction gets a `warrant_id`, and commit works;
+  - compensation / employment_status / identity → 202, `approval_id`, no `warrant_id`, and only a
+    `warrant.requested` event;
+  - create / deactivate labelled routine → held;
+  - 422 with no event written for: one source, a cleanup purpose, a housekeeping purpose, a
+    too-short purpose, an unknown class, and a held class with no `approval_from`;
+  - the principal (also as `"  dana okafor "`) cannot approve, and no issue event is written.
+- **The tests can fail.** In a scratch copy, each rule was undone in turn: the shared filler list
+  instead of the HR one, `minItems: 1`, the backstop removed, identity not held. Each change made
+  exactly the tests that guard that rule fail.
+- **Against a real Warrant process** (started by `dev.sh`):
+  - `/policies` lists the five hold rules;
+  - routine → 200;
+  - compensation → 202 `change_class:compensation`;
+  - deactivate labelled routine → 202 `action:deactivate`;
+  - cleanup purpose → 422;
+  - `/verify` intact.
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -134,6 +172,17 @@
 - **Reading of "two [M4] are also part of the reorg":** the 5 M3 and 2 M4 reorg mismatches are
   7 different people, so each planted person has exactly one difference.
 
+**Step 3** (governance-touching; approved by the human before being made)
+- **`hr-record-correction` uses `HR_FILLER_PHRASES`, not the shared `FILLER_PHRASES`.** It adds the
+  cleanup and housekeeping phrases listed above. The other two policies are unchanged.
+- **The policy also holds `action: create` and `action: deactivate`.** These rules are listed
+  after the class rules, so `because` still names the class when one matches. The `rationale`
+  sentence now mentions adding or removing a record.
+- **One existing Warrant assertion changed:** the policy-list test now expects 3 policies instead
+  of 2, because adding a policy changes that count.
+- `warrant/VENDORED.md` was reformatted with `deno fmt`; the Step 1 table had failed
+  `deno fmt --check`.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
@@ -147,6 +196,9 @@
 - **Step 2:** D1-2's ADP email ends in a trailing space inside the CSV. If Step 4's CSV reader
   trims whitespace silently, that decoy stops testing anything (it would still pass). Step 4
   should trim deliberately, in `normalize.py`.
+- **Step 3:** the new Warrant tests call the request handler in-process, as the existing ones do.
+  Against the real process, only the manual run above was done. Step 8's integration tests are the
+  real end-to-end check.
 
 ## Open questions (for later steps — nothing decided yet)
 
@@ -154,7 +206,15 @@
   default. An approval held during `run` would not exist in the Warrant that `app` starts. Choose
   one: those targets use `--persist`, or the whole flow runs within one Warrant lifetime, as
   `make demo` does.
+- **Step 8, filler phrases:** a purpose containing any phrase from `HR_FILLER_PHRASES` is refused
+  with 422. That covers the shared ones too ("follow up", "check in", "awareness",
+  "engagement"…). Drift can't read Warrant's code, so the computed purposes simply have to be
+  specific, and the Step 8 integration tests will catch a 422.
+- **Step 8, approver = principal:** Warrant accepts a request whose `approval_from` is the
+  principal, but nobody can then approve it, and it expires after 24 h. That fails closed, but it
+  leaves the request stuck. Drift should refuse, when it loads its config, any approver equal to
+  `DRIFT_PRINCIPAL`, rather than relying on Warrant to catch it.
 
 ## Next step
 
-Step 3 · Warrant policy (in `./warrant/`; log every change in `warrant/VENDORED.md`).
+Step 4 · Connectors and normalisation.

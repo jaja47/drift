@@ -385,7 +385,68 @@ export const GENERATED_CONTENT_PUBLISH: Policy = {
   ],
 };
 
+/**
+ * The shared list is written for outreach. Record corrections have their own
+ * way of saying nothing: a purpose like "routine data cleanup" fits every row
+ * in the table, so it explains none of them.
+ */
+export const HR_FILLER_PHRASES = [
+  ...FILLER_PHRASES,
+  "data cleanup",
+  "data clean-up",
+  "clean up",
+  "cleanup",
+  "clean-up",
+  "housekeeping",
+  "data hygiene",
+  "tidy up",
+  "routine maintenance",
+  "keep records in sync",
+  "keep systems in sync",
+];
+
+export const HR_RECORD_CORRECTION: Policy = {
+  id: "hr-record-correction",
+  version: "1.0.0",
+  title: "Correction of an employee record in a downstream HR system",
+  rationale: "A correction to employee data must name who authorised it, which records it was " +
+    "derived from, and why — and pay, status and identity changes, and adding or removing a " +
+    "record, need a second person.",
+  fields: {
+    actor: { type: "versioned_id" }, // "drift-reconciler@v0.1.0"
+    principal: { type: "named_human" }, // who authorised this reconciliation run
+    system: { type: "enum", values: ["adp", "workday", "learning"] },
+    action: { type: "enum", values: ["update", "create", "deactivate"] },
+    object: { type: "string", minLength: 3, hint: "pseudonymous employee id, never a name" },
+    field: { type: "string", minLength: 2 },
+    change_class: {
+      type: "enum",
+      values: ["routine", "compensation", "employment_status", "identity"],
+    },
+    purpose: { type: "prose", minLength: 24, forbidPhrases: HR_FILLER_PHRASES },
+    // A reconciliation that cites only one system has not reconciled anything.
+    sources: { type: "array", itemType: "string", minItems: 2 },
+  },
+  requiresApproval: [
+    {
+      when: { field: "change_class", equals: "compensation" },
+      because: "change_class:compensation",
+    },
+    {
+      when: { field: "change_class", equals: "employment_status" },
+      because: "change_class:employment_status",
+    },
+    { when: { field: "change_class", equals: "identity" }, because: "change_class:identity" },
+    // A backstop that does not depend on the caller's classification: adding or
+    // removing a payroll record is held even if it arrives labelled "routine".
+    // Listed last, so a correctly classed request still reports its class.
+    { when: { field: "action", equals: "create" }, because: "action:create" },
+    { when: { field: "action", equals: "deactivate" }, because: "action:deactivate" },
+  ],
+};
+
 export const POLICIES: Record<string, Policy> = {
   [CONTACT_DATA_TOUCH.id]: CONTACT_DATA_TOUCH,
   [GENERATED_CONTENT_PUBLISH.id]: GENERATED_CONTENT_PUBLISH,
+  [HR_RECORD_CORRECTION.id]: HR_RECORD_CORRECTION,
 };
