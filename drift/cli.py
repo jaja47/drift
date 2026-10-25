@@ -1,6 +1,6 @@
 """Drift command line. It calls the same functions as app.py; only the printing lives here.
 
-    python -m drift.cli detect [--source DIR]
+    python -m drift.cli detect [--source DIR] [--explain]
 
 `run` / `approve` / `sync` arrive in Step 8, `demo` in Step 11.
 """
@@ -16,6 +16,8 @@ from drift import classify
 from drift.connectors import CsvAdpSource, CsvWorkdaySource, read_reference
 from drift.connectors.csv_source import DEFAULT_DIR
 from drift.detect import Detection, detect_sources
+from drift.explain import explain
+from drift.patterns import find_patterns
 
 
 def detection_from(directory: Path) -> Detection:
@@ -39,12 +41,25 @@ def cmd_detect(args: argparse.Namespace) -> int:
           f"{matched['workday_only']} only in Workday, {matched['adp_only']} only in ADP.")
     print(f"{len(d.mismatches)} mismatches — " + ", ".join(
         f"{classes[c]} {c}" for c in classify.CLASSES if classes[c]) + ".\n")
+    patterns = find_patterns(d.mismatches, d.pairs)
+    print("Patterns" if patterns else "Patterns: none (no group of 3 or more shares a cause).")
+    for p in patterns:
+        print(f"  • {p.diagnosis}\n    Suggested owner: {p.suggested_owner}")
+    print()
     rows = [[m.type, classify.label(m.type), m.employee_ref, m.field,
              classify.change_class(m.type, m.field), m.workday_value or "—",
              m.adp_value or "—", str(m.org_effective_date or m.comp_effective_date or "")]
             for m in d.mismatches]
     print(table(["TYPE", "WHAT", "EMPLOYEE", "FIELD", "CLASS", "WORKDAY", "ADP", "EFFECTIVE"],
                 rows))
+    if args.explain:
+        explained = explain(d.mismatches)
+        print(f"\nExplanations — {explained.note}. Advisory only: they do not change what "
+              f"happens.")
+        for m in d.mismatches:
+            e = explained.by_fingerprint[m.fingerprint]
+            print(f"\n{m.type} {m.employee_ref}: {e.explanation}\n"
+                  f"  Likely: {'; '.join(e.likely_causes)}\n  Owner: {e.suggested_owner}")
     return 0
 
 
@@ -60,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     detect = sub.add_parser("detect", help="compare the exports and print the mismatches")
     detect.add_argument("--source", type=Path, default=DEFAULT_DIR)
+    detect.add_argument("--explain", action="store_true",
+                        help="add a plain-English explanation per mismatch (advisory)")
     detect.set_defaults(run=cmd_detect)
     for name, step in [("run", "Step 8"), ("approve", "Step 8"), ("sync", "Step 8"),
                        ("demo", "Step 11")]:

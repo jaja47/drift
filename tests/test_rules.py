@@ -20,9 +20,10 @@ def test_sql_lives_in_detect_sql_not_in_python_strings() -> None:
     assert offenders == []
 
 
-def test_classification_does_not_depend_on_the_llm() -> None:
-    """classify.py decides which changes need a human. It must not import the explainer or an
-    LLM client, so nothing an LLM writes can reach that decision."""
-    source = (DRIFT / "classify.py").read_text(encoding="utf-8")
-    assert not re.search(r"^\s*(import|from)\s+(anthropic|drift\.explain|drift import explain)",
-                         source, re.M)
+def test_decisions_do_not_depend_on_the_llm() -> None:
+    """The modules that decide what happens must not import the explainer or an LLM client, so
+    nothing an LLM writes can reach a decision. Explanations are display text only."""
+    llm = re.compile(r"^\s*(import|from)\s+(anthropic|drift\.explain\b|drift import .*\bexplain\b)",
+                     re.M)
+    for name in ("classify.py", "govern.py", "detect.py", "normalize.py", "patterns.py"):
+        assert not llm.search((DRIFT / name).read_text(encoding="utf-8")), name

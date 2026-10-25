@@ -14,7 +14,7 @@ Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
 | ✅ | 4 · Connectors + normalisation | 2 | done 2026-10-24 |
 | ✅ | 5 · Detection | 2 | done 2026-10-24 |
 | ✅ | 6 · **GATE A** | 2 | answered 2026-10-24 |
-| ⬜ | 7 · Explanations + patterns | 3 | |
+| ✅ | 7 · Explanations + patterns | 3 | done 2026-10-24 |
 | ⬜ | 8 · Governance + apply | 3 | |
 | ⬜ | 9 · **GATE B** | 3 | |
 | ⬜ | 10 · Review page | 4 | |
@@ -272,6 +272,66 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
 - **The tests can fail:** each deliberate breakage was caught — M8 left out of the union, M8
   repeating M1, and M8 marked routine.
 
+## Step 7 · Explanations and patterns — what was done and verified
+
+- **`drift/explain.py`** produces display text only.
+  - `payload()` builds the model's input from an allow-list: type and label, field, employee ref,
+    both values, effective dates, payroll cutoff. Pay values are replaced by
+    `"Workday is 4.4% higher than ADP"`; names and emails are replaced by `withheld`, plus which
+    part of the name differs.
+  - **The request** is one Messages API call per mismatch on `DRIFT_MODEL` (default
+    `claude-sonnet-5-5`):
+    - structured JSON output (`explanation`, `likely_causes`, `suggested_owner`);
+    - effort `low`;
+    - server-side refusal fallback (`fallbacks="default"`, beta
+      `server-side-fallback-2026-07-01`);
+    - a system prompt saying the output is advisory and must never suggest bypassing review.
+  - **The answer is checked:** it is used only if `stop_reason` is `end_turn`, the JSON has the
+    right shape, and no bypass phrase appears. Causes are cut to three. Good answers are cached by
+    fingerprint in `state/explanations.json`.
+  - **Otherwise the template is used:** with no credentials, a failed call, a refusal, malformed
+    output, or bypass advice, a deterministic template for each type M1–M8 is used. Templates
+    note when a change is dated after the cutoff.
+- **`drift/patterns.py`** groups mismatches by org date, comp date, after-cutoff and cost centre.
+  A group of ≥3 becomes a pattern with a one-line diagnosis and an owner. A group already
+  explained by an earlier pattern is dropped.
+- **`python -m drift.cli detect`** prints the patterns before the table. `--explain` adds the
+  explanations and says how they were produced.
+- **Result on the committed data:** exactly one pattern — "7 org changes share the effective date
+  2026-10-01 (5 cost centre, 2 manager) — likely one reorg that did not reach ADP. Suggested
+  owner: IT Application Engineering (integration)."
+
+**Verified by running:**
+- `make test` → pytest **151 passed**; Warrant 56 passed.
+- **The LLM payload holds no names, emails or pay figures.** This was checked for all 18 real
+  mismatches plus synthetic M8 email and location rows: no `@`, no amount with cents, no bare
+  number of 4+ digits outside dates and IDs, and no token of the person's name from either
+  system. The payload keys are an allow-list.
+- **The reorg pattern is found**, it is the only pattern in the data, and it is not repeated as a
+  CC-420 pattern. Comp-date, after-cutoff, cost-centre and below-minimum groups are each tested.
+- **The template fallback works offline:** with no credentials, all 18 get deterministic
+  templates, nothing is cached, and the tests cannot construct a real client.
+- **With a fake client:**
+  - there is exactly one call per mismatch, carrying exactly the payload;
+  - the request is advisory and structured, uses `DRIFT_MODEL`, has fallbacks on, and sets no
+    `thinking`/`temperature`;
+  - answers are cached and not requested twice;
+  - a refusal, truncated output, non-JSON, an empty answer, causes that aren't a list, and two
+    kinds of bypass advice all give the template, uncached;
+  - a connection error gives the template for that one mismatch only;
+  - an auth error stops after one call.
+- `tests/test_rules.py`: `classify`, `govern`, `detect`, `normalize` and `patterns` import neither
+  `anthropic` nor the explainer.
+- **The tests can fail:** eight deliberate breakages were each caught:
+  - pay values sent;
+  - names or emails sent;
+  - the bypass guard removed;
+  - a refusal accepted as an answer;
+  - an auth error not stopping the calls;
+  - the advisory line dropped from the prompt;
+  - already-explained groups not suppressed;
+  - the pattern minimum lowered to 2.
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -381,6 +441,30 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
   is unchanged.
 - **`change_classes.yaml`'s `field` may now be a list**, which M8 uses.
 
+**Step 7**
+- **Names and emails are withheld from the LLM too, not only pay.** BUILD.md mentions only
+  replacing pay values; CLAUDE.md rule 5 requires the rest. The payload also adds a `difference`
+  key (the pay percentage, or which part of a name differs) and the type's label.
+- **The LLM is used only when `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set.** A credential
+  that exists only as an `ant` CLI profile is ignored, so a fresh clone with no key gets templates.
+- **Request settings for Sonnet 5.5:**
+  - server-side refusal fallback `fallbacks="default"`, following the current Claude API
+    guidance for this model (a refusal still ends in the template if it gets through);
+  - effort `low`, because the output is short;
+  - `thinking` left at the model default (adaptive);
+  - `max_tokens` 2048.
+- **Extra guards on the answer:**
+  - output containing bypass advice is discarded for the template;
+  - an auth, permission, not-found or bad-request error stops further calls for the run, since it
+    would repeat;
+  - only LLM answers are cached, never templates.
+- **The M2 template offers "a recent pay change did not reach ADP" only when the comp date is
+  within 60 days of the cutoff.** Otherwise "keyed differently (typo)" comes first.
+- **Pattern details:**
+  - a group already explained by an earlier pattern is dropped;
+  - cost-centre groups use Workday's cost centre, or ADP's department for ADP-only records;
+  - "after cutoff" uses termination and hire dates from the pairs.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
@@ -403,6 +487,16 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
   checks were a one-off script.
 - **Step 4:** a `Pair` carries names and emails because M7 and D1 need them. Step 7 must build the
   LLM payload from an explicit allow-list, never from a whole `Pair`.
+- **Step 7: no live Claude API call has been made.** This machine has no credentials (no
+  `ANTHROPIC_API_KEY` in the shell or `.env`, and no `ant` CLI). The LLM path is tested only
+  against a fake client. Not yet confirmed against the real API: the request shape (beta
+  `messages.create` with `fallbacks="default"` and `output_config` effort + JSON schema on
+  `claude-sonnet-5-5`), and the quality of the explanations.
+- **Step 7:** `python -m drift.cli …` run directly doesn't read `.env`; only `scripts/dev.sh` (the
+  Make targets) does. Run directly, it uses an API key only if the shell already exports one.
+- **Two slow test runs (>120 s and >300 s of wall time)** happened while pytest itself reported
+  3–4 s. Reruns took 4–5 s and the slowness couldn't be reproduced, so the cause is unknown. It
+  looks environmental, not code.
 
 ## Open questions (for later steps — nothing decided yet)
 
@@ -421,4 +515,6 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
 
 ## Next step
 
-Step 7 · Explanations and patterns (`explain.py`, `patterns.py`). M8 rows need a template too.
+Step 8 · Governance and apply (`target/adp_target.py`, `govern.py`, `cli.py run / approve / sync`,
+approvers in `change_classes.yaml`, integration tests against a real Warrant process). See the
+Step 8 open questions above.
