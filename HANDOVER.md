@@ -15,7 +15,7 @@ Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
 | ✅ | 5 · Detection | 2 | done 2026-10-24 |
 | ✅ | 6 · **GATE A** | 2 | answered 2026-10-24 |
 | ✅ | 7 · Explanations + patterns | 3 | done 2026-10-24 |
-| ⬜ | 8 · Governance + apply | 3 | |
+| ✅ | 8 · Governance + apply | 3 | done 2026-10-25 |
 | ⬜ | 9 · **GATE B** | 3 | |
 | ⬜ | 10 · Review page | 4 | |
 | ⬜ | 11 · Demo script | 4 | |
@@ -332,6 +332,160 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
   - already-explained groups not suppressed;
   - the pattern minimum lowered to 2.
 
+## Step 8 · Governance and apply — what was done and verified
+
+- **`drift/govern.py`** is the governance loop. Everything goes through Warrant over HTTP
+  (`WarrantClient`, httpx, 5 s timeout, no retries).
+  - **`run`**: detect, then for each mismatch not already settled, `POST /warrant` under
+    `hr-record-correction`:
+    - 422 → `blocked`, violations stored;
+    - 202 → `held`, approval id stored;
+    - 200 → `apply_with_warrant`;
+    - no usable answer → the run stops with `warrant_unreachable`, and every later mismatch is
+      marked `warrant_unreachable` without being asked.
+  - **The request comes from code and config:**
+    - `actor` `drift-reconciler@v0.1.0` and `principal` from `DRIFT_PRINCIPAL`;
+    - `action` is `create` for M5, `deactivate` for M6, `update` otherwise;
+    - `change_class` from classify.py;
+    - `approval_from` = the class's approver;
+    - `sources` = both rows. A missing side cites the search that found nothing, e.g.
+      `adp: no payroll record joined to W10199 through the ID crosswalk`.
+  - **`purpose()`** is computed per record from the mismatch: employee ref, field, reason, and
+    only code/date values (cost centre, manager id, status, dates). It never includes pay, names
+    or emails.
+  - **`apply_with_warrant`** is the only caller of the target (a rule test checks this with
+    `ast`). It does four things:
+    1. reads the warrant back (`GET /warrant/:id`) and writes only if it is `issued`, under this
+       policy, for exactly this system, action, object, field and class;
+    2. writes;
+    3. commits with the result;
+    4. on a write error, aborts with the reason.
+
+    A forged id, or a real warrant issued for another record, writes nothing.
+  - **`approve <ref|fingerprint> --as NAME --decision …`** posts `/approval/decide` and records
+    `approved` or `rejected`. It writes nothing; Warrant's refusals are printed.
+  - **`sync`** asks Warrant about every `held` / `approved` / `uncommitted` record:
+    - issued → write and commit;
+    - refused → `rejected`;
+    - lapsed, or unknown to Warrant → `expired`;
+    - `uncommitted` → retry the commit.
+- **`drift/target/adp_target.py`** is `AdpTarget`. It writes Workday's value, in ADP's terms, into
+  `state/adp_current.csv`, using normalize.py's maps. There is one rule per type
+  (M1/M8 status, M2 the pay column ADP pays from, M3, M4, M5 a new row, M6 terminate, M7,
+  M8 location/email/rate type).
+  - It needs a warrant id.
+  - Writes are atomic.
+  - A value it cannot map is a `TargetError`, never a guess.
+  - The copy is created by the first successful write.
+  - It refuses to sit in the source directory.
+  - The result it returns goes to the ledger: the row and the columns changed, with old/new
+    values only for code and date columns.
+- **`drift/state.py` + `drift/state.sql`** hold `state/drift.db`, keyed by fingerprint. It
+  stores ids, class, action, status, detail and the committed result — no names, emails or pay.
+  - Settled statuses (applied, held, approved, rejected, failed, uncommitted) get no new warrant
+    on a rerun.
+  - blocked, expired and warrant_unreachable are asked again.
+- **`drift/report.py`** writes `reports/run_<ts>.md`: counts, patterns, the applied table with
+  warrant ids, the held table with approver, approval id and fingerprint, then blocked,
+  everything else, and `/verify`. It contains no pay, names or emails.
+- **Approvers** are in `change_classes.yaml`, all fictional:
+  - compensation → Priya Raman (Payroll Manager);
+  - employment_status → Owen Castellanos (Payroll Operations Lead);
+  - identity → Grace Adeyemi (HR Operations Manager).
+
+  The loader refuses: a routine approver, an unknown class, a missing held class, or a name that
+  isn't first + last. `check_principal` stops the run before any request if the principal is an
+  approver.
+- **CLI:** `run`, `approve` and `sync` replace the stubs. Exit 0 = done; 1 = refused or Warrant
+  unreachable; 2 = usage/config error (nothing requested).
+- **Make:**
+  - `run`, `approve`, `sync` and `app` use `dev.sh --persist`.
+  - New targets: `make approve REF=… AS="…" [DECISION=rejected] [NOTE=…]` and `make sync`.
+- **Result on the committed data:**
+  - `run`: 8 applied, each committed; 10 held. The ledger has 26 events, intact.
+  - approve W10026 as Owen Castellanos, reject W10076 as Priya Raman, then `sync`: 9 rows of the
+    ADP copy differ from the export (8 routine + the termination). The ledger has 31 events.
+  - A rerun: 18 already handled, no new events.
+
+**Verified by running:**
+- `make test` → pytest **273 passed** (151 before); Warrant **56 passed**. `warrant/` is
+  unchanged; `~/Documents/warrant` is still clean at `f595c14`.
+- **Integration tests against a real Warrant process.** `tests/conftest.py` starts
+  `deno run … src/server.ts` from `./warrant/` with `WARRANT_STORE=memory`, a random token and a
+  free port, and stops it afterwards. Every BUILD "Done when" item is covered:
+  - routine mismatches applied, each with a committed warrant (`GET /warrant/:id` → committed,
+    no approvals);
+  - every sensitive mismatch held: no warrant id on `GET /approval/:id`, and its ADP row
+    byte-for-byte unchanged;
+  - approving W10026 writes nothing until `sync`, which then writes and commits it; rejecting
+    W10076 means it is never written;
+  - a rerun adds 0 ledger events;
+  - with Warrant stopped: outcome `warrant_unreachable`, all 18 `warrant_unreachable`, and no
+    `adp_current.csv` at all. Once Warrant is back, the next run asks again;
+  - `/verify` is intact after the full flow.
+- **More integration tests:**
+  - neither the principal nor another approver can decide;
+  - Warrant stopping before a write, or between a write and its commit. The second case uses a
+    persistent ledger and a restarted Warrant: the write is recorded `uncommitted`, and `sync`
+    commits it;
+  - one dropped request stops the run although Warrant is still up;
+  - a wrong token → 401 → fail closed;
+  - a filler purpose → 18 blocked, 0 ledger events, then retried successfully;
+  - a forged warrant id writes nothing;
+  - a warrant for another record writes nothing;
+  - a write failure → warrant aborted with the reason;
+  - an expired approval (TTL 1 s) → `expired`, not decidable, re-requested with new ids;
+  - a Warrant restarted without its ledger → `expired`, nothing written;
+  - approve and sync with Warrant down → nothing recorded;
+  - decisions posted directly to Warrant are picked up by `sync`;
+  - the CLI's run / approve / sync, and its refusals (no principal; principal is an approver).
+- **The ledger carries no personal data:**
+  - 18 distinct per-record purposes;
+  - no employee name tokens, no `northpine.example`;
+  - none of the planted pay figures, and no fingerprint.
+
+  The same checks run on every request body and on the report.
+- **Target unit tests:**
+  - **each of the 18 fixes resolves its mismatch:** detection re-run against the copy no longer
+    finds it, and nothing new appears. For M5 a crosswalk entry is added; M6 stays reported, as
+    `terminated <date>`;
+  - every other row is unchanged and untouched lines are byte-identical;
+  - the 4 M8 fields are each fixed on edited copies of the exports;
+  - unmapped values are refused with nothing written;
+  - a second apply changes nothing;
+  - a created record follows its location's company code and pay frequency, and is not created
+    twice.
+- **By hand, the real Make targets** (`make reset`, `make run`, `make approve` ×2, `make sync`,
+  `make run`): five Warrant lifetimes sharing `state/ledger.jsonl`, the held requests survived
+  every restart, 31 events intact, and no deno left running afterwards.
+- **The tests can fail:** 20 deliberate breakages, each in a scratch copy, were all caught by the
+  full suite. These were:
+  - a 202 treated as a go-ahead;
+  - no warrant check;
+  - only the warrant's existence checked;
+  - settled ignored on rerun;
+  - no stop on unreachable;
+  - pay in the purpose;
+  - the fingerprint in the context;
+  - no approver named;
+  - principal = approver allowed;
+  - no abort on a failed write;
+  - a rejection sent down the write path;
+  - no commit retry;
+  - expired treated as settled;
+  - the copy made eagerly;
+  - the target beside the source;
+  - no warrant id needed;
+  - pay values in the result;
+  - unmapped written as-is;
+  - the wrong pay column;
+  - approve writing before sync.
+
+  The first run caught 18 of 20. Two gaps were found and fixed:
+  - no test had Warrant drop one request and come back, so "keep going after a failure"
+    survived;
+  - no test had a decision made outside Drift.
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -465,22 +619,88 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
   - cost-centre groups use Workday's cost centre, or ADP's department for ADP-only records;
   - "after cutoff" uses termination and hire dates from the pairs.
 
+**Step 8**
+- **State SQL lives in `drift/state.sql`, not `detect.sql`.** CLAUDE.md says "SQL lives in
+  detect.sql". The SQLite state is a different database from DuckDB detection, so it has its own
+  `.sql` file, loaded by the same `-- name:` reader. The rule test (no SQL in Python) still
+  passes unchanged.
+- **New modules not in BUILD.md's layout:**
+  - `drift/state.py` + `state.sql` (drift.db);
+  - `drift/report.py` (the run report);
+  - `drift/target/adp_target.py`;
+  - `tests/conftest.py`.
+
+  `csv_source.py` gained `WORKDAY_EXPORT` / `ADP_EXPORT` constants.
+- **The ADP copy is made by the first warranted write, not "on first run".** So a run with
+  Warrant down writes nothing at all — not even the copy. Rule 1 is then true of the file's
+  existence too.
+- **Stricter than BUILD.md: every write first reads the warrant back from Warrant** (governance:
+  only refuses more, never less). `apply_with_warrant` writes only if `GET /warrant/:id` says
+  `issued`, under `hr-record-correction`, for exactly this system, action, object, field and
+  class. This holds for the immediate 200 path and for approvals found by `sync`. BUILD.md only
+  says "200 → apply".
+- **More statuses than BUILD.md names.** BUILD.md has blocked, held, applied, rejected and
+  warrant_unreachable. Added:
+  - `approved` — decided, not yet synced;
+  - `expired` — lapsed, or Warrant no longer knows the approval;
+  - `failed` — had a warrant but the write failed or the warrant didn't match; aborted;
+  - `uncommitted` — written, but the commit was lost; `sync` retries it.
+
+  **Rerun rule:** held, approved, applied, rejected, failed and uncommitted are never asked
+  again. blocked, expired and warrant_unreachable are, since a refusal or lapse wrote nothing.
+- **Any unusable answer from Warrant stops the run**, not only a connection error: a timeout,
+  401, 5xx, non-JSON, or a 202 with no approval id. All of these report as `warrant_unreachable`,
+  with the reason in the detail.
+- **Nothing that could identify pay or a person goes to Warrant.** This is broader than BUILD.md,
+  which mentions only the purpose.
+  - The **request context** is `{run, mismatch_type}`. The fingerprint stays out because it is
+    sha256 of the values, so a pay fingerprint can be brute-forced back to the figures.
+  - The **commit result** gives old/new only for code and date columns. Pay, name and email
+    columns say "changed (value not recorded)".
+  - The **run report** follows the same rule.
+- **Approvers are `{name, role}` per held class.** Warrant compares the typed approver with
+  `approval_from` exactly (case-insensitive), so the role is kept out of the name. An unknown
+  class gets the identity approver.
+- **The open questions from Step 7 are resolved like this:**
+  - `make run`, `approve`, `sync` and `app` use `--persist`, so the ledger lives as long as
+    `state/drift.db`. `make reset` clears both. `make demo` stays on one in-memory Warrant.
+  - `check_principal` refuses, before any request, a principal who is an approver.
+  - No computed purpose hits a filler phrase: the integration run gets no 422.
+- **`approve` accepts an employee ref or a fingerprint prefix (≥6 characters).** For an employee
+  with several mismatches, it takes the one that is held.
+- **What a fix writes, where BUILD.md is silent:**
+  - **pay** (M2): only the column ADP pays from, by ADP's `Rate_Type`. It is refused if Workday
+    has no figure of that kind.
+  - **create** (M5): `Associate_ID` is `DRIFT-<employee ref>`, visibly Drift's until ADP assigns
+    one. `File_Number` is the next number. `Position_ID`'s company code and `Pay_Frequency` follow
+    other ADP records at the same location. The crosswalk is a source file, so it is not updated.
+  - **deactivate** (M6): `Position_Status` T. `Termination_Date` is the date of the fix, unless
+    ADP already has one.
+- **`sync` aborts an approved warrant whose mismatch is no longer in the exports**, and records it
+  `failed`. Nothing is written for a disagreement that has gone.
+- **The run report has no LLM explanations.** `govern.py` must not import the explainer (rule
+  test). The page (Step 10) shows them.
+- **Only the tests start Warrant themselves** (BUILD.md asks for a pytest session fixture). A rule
+  test checks that nothing under `drift/` uses `subprocess`, `deno`, `server.ts`, `ledger.jsonl`
+  or a path into `warrant/`.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
   terminal does. Nobody has yet pressed Ctrl-C in a real terminal.
 - **Tested on macOS only** (bash 3.2, BSD tools). Not run on Linux.
-- **`make run`, `make app` and `make demo` exist but are not built yet.** `run` and `demo` reach
-  the `cli.py` stub, which exits 2. (`make data` works as of Step 2.)
+- **`make app` and `make demo` exist but are not built yet** (Steps 10 and 11). `demo` reaches the
+  `cli.py` stub, which exits 2. *(`make run`, `make approve` and `make sync` work as of Step 8,
+  run by hand once.)*
 - **Step 2:** the mutation checks (in every step since) are one-off scripts and are not in the
   suite. *(Resolved in Step 5: "no accidental extras" is now also proven by the real detector,
   with 18/18, 0 decoys and 0 extras.)*
 - ~~**Step 2:** D1-2's trailing space could be trimmed away silently by the CSV reader.~~
   *Resolved in Step 4: the reader returns values untouched
   (`test_values_come_back_exactly_as_exported`), and `normalize.py` trims deliberately.*
-- **Step 3:** the new Warrant tests call the request handler in-process, as the existing ones do.
-  Against the real process, only the manual run above was done. Step 8's integration tests are the
-  real end-to-end check.
+- ~~**Step 3:** the new Warrant tests call the request handler in-process, as the existing ones do.
+  Against the real process, only the manual run above was done.~~ *Resolved in Step 8: 27
+  integration tests run against a real Warrant process.*
 - ~~**Step 4:** the ±$1 rule would exist twice (Python and SQL).~~ *Resolved in Step 5:
   `detect.sql` takes `$pay_tolerance_cents` from `normalize.PAY_TOLERANCE_CENTS`, with boundary
   tests at +$1 (not flagged) and ±$1.01 (flagged).*
@@ -494,27 +714,39 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
   `claude-sonnet-5-5`), and the quality of the explanations.
 - **Step 7:** `python -m drift.cli …` run directly doesn't read `.env`; only `scripts/dev.sh` (the
   Make targets) does. Run directly, it uses an API key only if the shell already exports one.
+- **Step 8: the integration tests start Warrant with `deno run` directly, not through `dev.sh`.**
+  The flags are the same. The Make targets were run by hand once (run, approve ×2, sync, run),
+  not in the suite.
+- **Step 8: a crash between the write and saving `uncommitted` is not handled or tested.** If the
+  Python process dies at exactly that point, `drift.db` does not know the write happened. The
+  next run asks for a new warrant; the target finds nothing to change and commits that. The first
+  warrant is left `issued` in the ledger, with no commit or abort.
+- **Step 8: the created record (M5) is an assumption.** Its `Pay_Frequency` and company code are
+  inferred from other records at the same location. A real ADP would assign the id and the
+  position. Not validated with anyone in payroll.
+- **Step 8: `make approve NOTE="…"` breaks if the note contains a double quote** (shell quoting
+  in the Makefile). The CLI itself is fine.
+- **Step 8: the "4 format differences ignored" count (demo beat 1) is not computed anywhere yet.**
+  The detector cannot read planted.json, so it needs its own count of pairs that differed only in
+  format. That belongs to Step 10's top row, and GATE B's rough demo will be missing it.
 - **Two slow test runs (>120 s and >300 s of wall time)** happened while pytest itself reported
   3–4 s. Reruns took 4–5 s and the slowness couldn't be reproduced, so the cause is unknown. It
   looks environmental, not code.
 
 ## Open questions (for later steps — nothing decided yet)
 
-- **Step 8:** `make run` and `make app` each start their own Warrant, with an in-memory store by
-  default. An approval held during `run` would not exist in the Warrant that `app` starts. Choose
-  one: those targets use `--persist`, or the whole flow runs within one Warrant lifetime, as
-  `make demo` does.
-- **Step 8, filler phrases:** a purpose containing any phrase from `HR_FILLER_PHRASES` is refused
-  with 422. That covers the shared ones too ("follow up", "check in", "awareness",
-  "engagement"…). Drift can't read Warrant's code, so the computed purposes simply have to be
-  specific, and the Step 8 integration tests will catch a 422.
-- **Step 8, approver = principal:** Warrant accepts a request whose `approval_from` is the
-  principal, but nobody can then approve it, and it expires after 24 h. That fails closed, but it
-  leaves the request stuck. Drift should refuse, when it loads its config, any approver equal to
-  `DRIFT_PRINCIPAL`, rather than relying on Warrant to catch it.
+- *(The three Step 8 questions are answered under Deviations → Step 8.)*
+- **GATE B, the approvers:** Priya Raman (compensation), Owen Castellanos (employment status) and
+  Grace Adeyemi (identity) are placeholders. Are three separate approvers right, and with these
+  roles? Which roles SPS would really use is still a question for HR Operations (PLAN.md §5).
+- **GATE B, beat 2 ("open one warrant"):** nothing in the CLI shows one warrant's purpose and
+  sources yet. A rough demo can use `curl $WARRANT_URL/warrant/<id>`. Step 10's expander is the
+  real answer.
 
 ## Next step
 
-Step 8 · Governance and apply (`target/adp_target.py`, `govern.py`, `cli.py run / approve / sync`,
-approvers in `change_classes.yaml`, integration tests against a real Warrant process). See the
-Step 8 open questions above.
+Step 9 · **GATE B** — end-to-end check. Run a rough `make demo` (Step 11 builds the polished one;
+today `demo` is still the stub) and ask the human to watch for the five demo beats in PLAN.md §1.
+Stop until answered. Raise the two GATE B questions above. Known gaps for the rough demo:
+- no "format differences ignored" count;
+- no CLI view of a single warrant.

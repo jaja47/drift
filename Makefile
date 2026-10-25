@@ -1,12 +1,17 @@
 # Every target that needs Warrant goes through scripts/dev.sh, which starts it from ./warrant/,
 # waits for /health, runs the command and stops Warrant on exit.
+#
+# run / approve / sync / app each start their own Warrant, so they use --persist: the ledger
+# (state/ledger.jsonl) then lives exactly as long as Drift's own state (state/drift.db), and a
+# request held by `run` still exists when `approve` decides it. `make reset` clears both.
+# `make demo` runs its whole flow inside one Warrant, on the in-memory store.
 
 PYTHON ?= python3
 VENV   := .venv
 PY     := $(VENV)/bin/python
 DEV    := scripts/dev.sh
 
-.PHONY: setup data test warrant run app demo reset
+.PHONY: setup data test warrant run approve sync app demo reset
 
 setup:
 	@$(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else "Python 3.11+ is required (found " + sys.version.split()[0] + ")")'
@@ -20,7 +25,7 @@ data:
 	$(PY) -m scripts.generate_data
 
 # Python tests, then Warrant's full suite. Neither needs a running Warrant: the integration
-# tests (Step 8) start their own on a free port.
+# tests start their own on a free port (tests/conftest.py).
 test:
 	$(PY) -m pytest -q
 	cd warrant && deno task test
@@ -29,10 +34,19 @@ warrant:
 	$(DEV)
 
 run:
-	$(DEV) $(PY) -m drift.cli run
+	$(DEV) --persist $(PY) -m drift.cli run
+
+# make approve REF=W10026 AS="Owen Castellanos" [DECISION=rejected] [NOTE="..."]
+DECISION ?= approved
+approve:
+	@test -n "$(REF)" -a -n "$(AS)" || { echo 'usage: make approve REF=<employee ref or fingerprint> AS="<approver name>" [DECISION=approved|rejected] [NOTE="..."]' >&2; exit 2; }
+	$(DEV) --persist $(PY) -m drift.cli approve "$(REF)" --as "$(AS)" --decision "$(DECISION)" $(if $(NOTE),--note "$(NOTE)")
+
+sync:
+	$(DEV) --persist $(PY) -m drift.cli sync
 
 app:
-	$(DEV) $(PY) -m streamlit run drift/app.py
+	$(DEV) --persist $(PY) -m streamlit run drift/app.py
 
 demo: reset
 	$(DEV) $(PY) -m drift.cli demo

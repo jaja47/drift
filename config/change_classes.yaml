@@ -11,8 +11,6 @@
 #
 # classify.py also refuses to load this file if a pay, status, record or name field is marked
 # routine, so an edit here cannot quietly send a pay change through unreviewed.
-#
-# Approvers per class are added in Step 8.
 
 types:
   M1:
@@ -47,3 +45,21 @@ types:
     field: [worker_status, location, work_email, rate_type]
     class: identity
     label: Other difference — no specific rule covers it
+
+# Who decides each held class. A held correction is requested of this person by name, and Warrant
+# accepts a decision only from them — never from the principal who authorised the run. Drift also
+# refuses to start if an approver is the principal. Routine fixes have no approver: they get a
+# warrant and are applied automatically.
+#
+# Fictional people (synthetic demo). Who should really approve each class is a question for HR
+# Operations (PLAN.md §5).
+approvers:
+  compensation:
+    name: Priya Raman
+    role: Payroll Manager
+  employment_status:
+    name: Owen Castellanos
+    role: Payroll Operations Lead
+  identity:
+    name: Grace Adeyemi
+    role: HR Operations Manager

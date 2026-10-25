@@ -19,6 +19,8 @@ from drift.connectors.base import (
 )
 
 DEFAULT_DIR = Path(__file__).resolve().parents[2] / "data" / "source"
+WORKDAY_EXPORT = "workday_workers.csv"
+ADP_EXPORT = "adp_payroll.csv"
 
 
 def read_export(path: Path, required: tuple[str, ...], key: str) -> list[SourceRow]:
@@ -54,7 +56,7 @@ def read_mapping(path: Path, key: str, value: str) -> dict[str, str]:
 class CsvWorkdaySource:
     """A Workday worker export saved as CSV (in production: a RaaS custom report)."""
 
-    def __init__(self, path: Path = DEFAULT_DIR / "workday_workers.csv") -> None:
+    def __init__(self, path: Path = DEFAULT_DIR / WORKDAY_EXPORT) -> None:
         self.path = path
 
     def list_workers(self) -> list[SourceRow]:
@@ -64,7 +66,7 @@ class CsvWorkdaySource:
 class CsvAdpSource:
     """An ADP payroll export saved as CSV (in production: ADP's Workers API)."""
 
-    def __init__(self, path: Path = DEFAULT_DIR / "adp_payroll.csv") -> None:
+    def __init__(self, path: Path = DEFAULT_DIR / ADP_EXPORT) -> None:
         self.path = path
 
     def list_payroll(self) -> list[SourceRow]:
