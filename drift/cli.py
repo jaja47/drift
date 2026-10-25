@@ -4,9 +4,11 @@
     python -m drift.cli run     [--source DIR] [--state DIR] [--reports DIR]
     python -m drift.cli approve REF --as "NAME" --decision approved|rejected [--note TEXT]
     python -m drift.cli sync    [--source DIR] [--state DIR]
+    python -m drift.cli show    REF        (employee ref, fingerprint, wrt_… or apr_… id)
+    python -m drift.cli demo               (the five demo beats, in one Warrant lifetime)
 
-`run`, `approve` and `sync` need Warrant (WARRANT_URL, WARRANT_TOKEN) and a principal
-(DRIFT_PRINCIPAL); `scripts/dev.sh` provides all three. `demo` arrives in Step 11.
+`run`, `approve`, `sync`, `show` and `demo` need Warrant (WARRANT_URL, WARRANT_TOKEN) and a
+principal (DRIFT_PRINCIPAL); `scripts/dev.sh` provides all three.
 
 Exit codes: 0 done; 1 refused or Warrant unreachable (nothing more was written); 2 usage or
 configuration error (nothing was requested or written).
@@ -26,7 +28,7 @@ from drift.connectors.csv_source import ADP_EXPORT, DEFAULT_DIR, WORKDAY_EXPORT
 from drift.detect import Detection, detect_sources
 from drift.explain import explain
 from drift.patterns import find_patterns
-from drift.report import STATUS_ORDER, STATUS_WORDS, verify_line
+from drift.report import STATUS_ORDER, STATUS_WORDS, ignored_line, shown_lines, verify_line
 
 
 def detection_from(directory: Path) -> Detection:
@@ -48,7 +50,8 @@ def cmd_detect(args: argparse.Namespace) -> int:
           f"{matched['both']} matched through the crosswalk, "
           f"{matched['workday_only']} only in Workday, {matched['adp_only']} only in ADP.")
     print(f"{len(d.mismatches)} mismatches — " + ", ".join(
-        f"{classes[c]} {c}" for c in classify.CLASSES if classes[c]) + ".\n")
+        f"{classes[c]} {c}" for c in classify.CLASSES if classes[c]) + ".")
+    print(ignored_line(d.ignored) + "\n")
     patterns = find_patterns(d.mismatches, d.pairs)
     print("Patterns" if patterns else "Patterns: none (no group of 3 or more shares a cause).")
     for p in patterns:
@@ -98,7 +101,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     statuses = Counter(rec.status for rec in r.records)
     print(f"{r.run_id} — principal {r.principal}, Warrant {r.warrant_url}")
     print(f"Compared {len(r.detection.pairs)} people: {len(r.records)} mismatches, "
-          f"{len(r.already)} already handled by an earlier run.\n")
+          f"{len(r.already)} already handled by an earlier run.")
+    print(ignored_line(r.detection.ignored) + "\n")
     for status in STATUS_ORDER:
         if statuses[status]:
             print(f"  {statuses[status]:>3}  {STATUS_WORDS[status]}")
@@ -159,11 +163,36 @@ def cmd_sync(args: argparse.Namespace) -> int:
     return 0
 
 
-def not_built(step: str):
-    def run(args: argparse.Namespace) -> int:
-        print(f"drift: `{args.command}` is not built yet — {step} (see BUILD.md).", file=sys.stderr)
+def cmd_show(args: argparse.Namespace) -> int:
+    s = settings(args)
+    if s is None:
         return 2
-    return run
+    client = govern.WarrantClient.from_env()
+    try:
+        shown = govern.show(s, client, args.ref)
+    except LookupError as e:
+        print(f"drift: {e}", file=sys.stderr)
+        return 1
+    except govern.WarrantUnreachable as e:
+        print(f"drift: {e}.", file=sys.stderr)
+        return 1
+    finally:
+        client.close()
+    print("\n".join(shown_lines(shown, classify.load_approvers())))
+    return 0
+
+
+def cmd_demo(args: argparse.Namespace) -> int:
+    from drift.demo import demo  # the demo narrates; it holds no logic of its own
+
+    s = settings(args)
+    if s is None:
+        return 2
+    client = govern.WarrantClient.from_env()
+    try:
+        return demo(s, client)
+    finally:
+        client.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -192,7 +221,11 @@ def main(argv: list[str] | None = None) -> int:
     approve.set_defaults(run=cmd_approve)
     governed("sync", "apply + commit held corrections that have been approved").set_defaults(
         run=cmd_sync)
-    sub.add_parser("demo").set_defaults(run=not_built("Step 11"))
+    show = governed("show", "one correction as Warrant holds it: purpose, sources, result")
+    show.add_argument("ref", help="employee ref, fingerprint prefix, wrt_… or apr_… id")
+    show.set_defaults(run=cmd_show)
+    governed("demo", "the five demo beats, narrated (needs fresh state)").set_defaults(
+        run=cmd_demo)
     args = parser.parse_args(argv)
     return args.run(args)
 

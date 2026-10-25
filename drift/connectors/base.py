@@ -27,7 +27,8 @@ from typing import Protocol, runtime_checkable
 
 # The columns Drift reads. A source may carry more; it must carry these.
 WORKDAY_COLUMNS = (
-    "Employee_ID", "Legal_First_Name", "Legal_Last_Name", "Work_Email", "Worker_Status",
+    "Employee_ID", "Legal_First_Name", "Legal_Last_Name", "Preferred_Name", "Work_Email",
+    "Worker_Status",
     "Hire_Date", "Termination_Date", "Manager_Employee_ID", "Cost_Center", "Location",
     "Pay_Rate_Type", "Annual_Base_Pay", "Hourly_Rate", "Comp_Effective_Date",
     "Org_Effective_Date",

@@ -14,7 +14,8 @@ from typing import TYPE_CHECKING
 from drift import __version__, classify
 
 if TYPE_CHECKING:
-    from drift.govern import RunResult
+    from drift.govern import RunResult, Shown
+    from drift.normalize import FormatDifference
     from drift.state import Record
 
 STATUS_ORDER = ("applied", "held", "approved", "rejected", "blocked", "expired", "failed",
@@ -38,6 +39,15 @@ def _table(header: list[str], rows: list[list[object]]) -> list[str]:
 
 def _what(r: Record) -> str:
     return f"{r.type} · {classify.label(r.type)}"
+
+
+def ignored_line(ignored: list[FormatDifference]) -> str:
+    """'4 format differences correctly ignored: 2 email differs only in case or spacing, …'"""
+    if not ignored:
+        return "No format differences to ignore."
+    kinds = Counter(f.why for f in ignored)
+    return (f"{len(ignored)} format difference{'s' if len(ignored) != 1 else ''} correctly "
+            f"ignored: " + "; ".join(f"{n} × {why}" for why, n in kinds.most_common()) + ".")
 
 
 def verify_line(verify: dict | None) -> str:
@@ -72,6 +82,7 @@ def render(r: RunResult, approvers: Mapping[str, classify.Approver]) -> str:
             f"ADP.",
             f"- **{len(r.records)}** mismatches: " + ", ".join(
                 f"{statuses[s]} {STATUS_WORDS[s]}" for s in STATUS_ORDER if statuses[s]) + ".",
+            f"- {ignored_line(r.detection.ignored)}",
             f"- {len(r.already)} already handled by an earlier run (no new warrant requested).",
             ""]
 
@@ -118,3 +129,62 @@ def write(r: RunResult, directory: Path, approvers: Mapping[str, classify.Approv
     path = directory / f"{r.run_id}.md"
     path.write_text(render(r, approvers), encoding="utf-8")
     return path
+
+
+def _changes(result: dict | None) -> list[str]:
+    changed = (result or {}).get("changed") or {}
+    if not changed:
+        return [(result or {}).get("note", "nothing written")]
+    return [f"{column}: {v['from'] or '—'} → {v['to']}" if isinstance(v, dict)
+            else f"{column}: {v}" for column, v in changed.items()]
+
+
+def shown_lines(shown: Shown, approvers: Mapping[str, classify.Approver]) -> list[str]:
+    """One correction as Warrant holds it: what was authorised, by whom, why, from which
+    sources, and what was written. For a held correction there is no warrant to show yet."""
+    rec, w, a = shown.record, shown.warrant, shown.approval
+    roles = {x.name: x.role for x in approvers.values()}
+    out: list[str] = []
+    if rec is not None:
+        out.append(f"{rec.employee_ref} · {rec.type} {classify.label(rec.type)} — {rec.status}")
+    if w is None:
+        if a is not None:
+            who = a.get("requested_of") or ""
+            out += [f"  Requested of  {who} ({roles.get(who, 'approver')})",
+                    f"  Approval      {a.get('approval_id')} — {a.get('state')}, lapses "
+                    f"{a.get('expires_at')}"]
+            out += [f"  Decision      {d.get('decision')} by {d.get('approver')}"
+                    for d in a.get("decisions") or []]
+            if a.get("state") == "pending_approval":
+                out.append(f"  No warrant exists until {who} decides — there is nothing to act "
+                           f"with, and nothing has been written.")
+        elif rec is not None:
+            out.append(f"  {rec.detail or 'No warrant was issued.'}")
+        return out
+    record = w.get("record") or {}
+    approvals = w.get("approvals") or []
+    approved = [x for x in approvals if x.get("decision") == "approved"]
+    sources = record.get("sources") or []
+    out += [f"  Warrant       {w.get('warrant_id')} — {w.get('state')}",
+            f"  Policy        {w.get('policy_id')}",
+            f"  Actor         {record.get('actor')}",
+            f"  Principal     {record.get('principal')}",
+            f"  Change        {record.get('action')} {record.get('system')} · "
+            f"{record.get('object')} · {record.get('field')} · {record.get('change_class')}",
+            f"  Purpose       {record.get('purpose')}"]
+    out += [f"  {'Sources' if i == 0 else '':<13} {src}" for i, src in enumerate(sources)]
+    out.append("  Approval      " + (
+        f"approved by {approved[-1].get('approver')}, the person it was requested of"
+        if approved
+        else "none needed — routine" if not record.get("approval_from")
+        else f"requested of {record.get('approval_from')}"))
+    if w.get("state") == "committed":
+        outcome = w.get("outcome") or {}
+        written = _changes(outcome)
+        out.append(f"  Written       {outcome.get('target')} {outcome.get('row')}: {written[0]}")
+        out += [f"  {'':<13} {line}" for line in written[1:]]
+    elif w.get("state") == "aborted":
+        out.append(f"  Aborted       {w.get('outcome')}")
+    out.append(f"  Ledger        {w.get('event_count')} events, {w.get('created_at')} → "
+               f"{w.get('last_event_at')}")
+    return out

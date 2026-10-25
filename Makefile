@@ -1,7 +1,7 @@
 # Every target that needs Warrant goes through scripts/dev.sh, which starts it from ./warrant/,
 # waits for /health, runs the command and stops Warrant on exit.
 #
-# run / approve / sync / app each start their own Warrant, so they use --persist: the ledger
+# run / approve / sync / show / app each start their own Warrant, so they use --persist: the ledger
 # (state/ledger.jsonl) then lives exactly as long as Drift's own state (state/drift.db), and a
 # request held by `run` still exists when `approve` decides it. `make reset` clears both.
 # `make demo` runs its whole flow inside one Warrant, on the in-memory store.
@@ -11,7 +11,7 @@ VENV   := .venv
 PY     := $(VENV)/bin/python
 DEV    := scripts/dev.sh
 
-.PHONY: setup data test warrant run approve sync app demo reset
+.PHONY: setup data test warrant run approve sync show app demo reset
 
 setup:
 	@$(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else "Python 3.11+ is required (found " + sys.version.split()[0] + ")")'
@@ -44,6 +44,11 @@ approve:
 
 sync:
 	$(DEV) --persist $(PY) -m drift.cli sync
+
+# make show REF=W10015 — one correction as Warrant holds it (or a wrt_… / apr_… id)
+show:
+	@test -n "$(REF)" || { echo 'usage: make show REF=<employee ref, fingerprint, wrt_… or apr_… id>' >&2; exit 2; }
+	$(DEV) --persist $(PY) -m drift.cli show "$(REF)"
 
 app:
 	$(DEV) --persist $(PY) -m streamlit run drift/app.py

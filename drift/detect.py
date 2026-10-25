@@ -7,14 +7,20 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import astuple, dataclass
+from dataclasses import astuple, dataclass, field
 from datetime import date
 from pathlib import Path
 
 import duckdb
 
 from drift.connectors import PayrollSource, Reference, WorkerSource
-from drift.normalize import PAY_TOLERANCE_CENTS, Pair, normalize
+from drift.normalize import (
+    PAY_TOLERANCE_CENTS,
+    FormatDifference,
+    Pair,
+    format_differences,
+    normalize,
+)
 
 SQL_PATH = Path(__file__).with_name("detect.sql")
 
@@ -37,6 +43,7 @@ class Mismatch:
 class Detection:
     pairs: list[Pair]
     mismatches: list[Mismatch]
+    ignored: list[FormatDifference] = field(default_factory=list)  # reconciled, not flagged
 
 
 def queries(path: Path = SQL_PATH) -> dict[str, str]:
@@ -75,5 +82,7 @@ def detect(pairs: Iterable[Pair]) -> list[Mismatch]:
 def detect_sources(workers: WorkerSource, payroll: PayrollSource,
                    reference: Reference) -> Detection:
     """Read, normalise and detect: the whole of detection, for the CLI and the page alike."""
-    pairs = normalize(workers.list_workers(), payroll.list_payroll(), reference)
-    return Detection(pairs, detect(pairs))
+    worker_rows, payroll_rows = workers.list_workers(), payroll.list_payroll()
+    pairs = normalize(worker_rows, payroll_rows, reference)
+    return Detection(pairs, detect(pairs),
+                     format_differences(worker_rows, payroll_rows, reference))

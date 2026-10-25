@@ -11,13 +11,14 @@ import csv
 import json
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 import httpx
 import pytest
 
-from drift import classify, cli, govern
+from drift import classify, cli, govern, report
 from drift.connectors.csv_source import ADP_EXPORT, DEFAULT_DIR
 from drift.govern import (
     RunResult,
@@ -27,6 +28,7 @@ from drift.govern import (
     WarrantUnreachable,
     apply_with_warrant,
 )
+from drift.demo import demo
 from drift.state import Record, State
 from drift.target.adp_target import CREATED_ID_PREFIX
 
@@ -224,6 +226,7 @@ def test_the_report_says_what_happened_without_personal_data(flow: Flow) -> None
     assert flow.first.report.name == f"{flow.first.run_id}.md"
     assert re.fullmatch(r"run_\d{8}T\d{6}Z", flow.first.run_id)
     assert "8 applied, 10 held for approval" in text
+    assert "4 format differences correctly ignored" in text
     assert "7 org changes share the effective date 2026-10-01" in text
     assert "Owen Castellanos (Payroll Operations Lead)" in text
     assert "intact" in text
@@ -231,6 +234,49 @@ def test_the_report_says_what_happened_without_personal_data(flow: Flow) -> None
         assert r.employee_ref in text
     assert "@" not in text.replace("drift-reconciler@v", "")
     assert not re.search(r"(?<![\d.])\d+\.\d{2}(?!\d)", text)
+
+
+# ── one correction, as Warrant holds it ──────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def client(warrant):
+    c = WarrantClient(warrant.url, warrant.token)
+    yield c
+    c.close()
+
+
+def test_show_opens_an_applied_warrant_with_its_purpose_and_sources(flow: Flow, client) -> None:
+    shown = govern.show(flow.s, client, "W10015")
+    record = shown.warrant["record"]
+    assert shown.warrant["state"] == "committed" and shown.approval is None
+    assert "W10015" in record["purpose"] and "CC-420" in record["purpose"]
+    assert record["sources"] == ["workday_workers.csv#Employee_ID=W10015",
+                                 f"adp_payroll.csv#Associate_ID={associate('W10015')}"]
+    assert govern.show(flow.s, client, shown.record.warrant_id).warrant == shown.warrant
+    lines = "\n".join(report.shown_lines(shown, APPROVERS))
+    assert "Home_Department: 410 → 420" in lines and "none needed — routine" in lines
+
+
+def test_show_of_a_held_correction_has_no_warrant_to_open(flow: Flow, client) -> None:
+    shown = govern.show(flow.s, client, "W10112")
+    assert shown.warrant is None and shown.approval["state"] == "pending_approval"
+    assert govern.show(flow.s, client, shown.record.approval_id).record == shown.record
+    lines = "\n".join(report.shown_lines(shown, APPROVERS))
+    assert "No warrant exists until Owen Castellanos decides" in lines
+
+
+def test_show_follows_an_approval_to_its_warrant_and_a_rejection_to_none(flow: Flow,
+                                                                          client) -> None:
+    approved = govern.show(flow.s, client, "W10026")
+    assert approved.warrant["state"] == "committed"
+    assert [a["approver"] for a in approved.warrant["approvals"]] == ["Owen Castellanos"]
+    assert "the person it was requested of" in "\n".join(
+        report.shown_lines(approved, APPROVERS))
+    rejected = govern.show(flow.s, client, "W10076")
+    assert rejected.warrant is None and rejected.approval["state"] == "refused"
+    with pytest.raises(LookupError):
+        govern.show(flow.s, client, "wrt_neverissued000000")
 
 
 def test_the_source_export_is_never_modified(flow: Flow) -> None:
@@ -250,6 +296,9 @@ def test_sync_acts_on_decisions_made_directly_in_warrant(warrant, tmp_path: Path
         r = httpx.post(warrant.url + "/approval/decide", headers=auth, json={
             "approval_id": held[ref].approval_id, "approver": who, "decision": decision})
         assert r.status_code == 200
+    # Before sync, Drift's record has no warrant id; show follows the approval to it.
+    early = govern.show(s, client, "W10112")
+    assert early.record.warrant_id is None and early.warrant["state"] == "issued"
     synced = by_ref(govern.sync(s, client).changed)
     assert (synced[("M1", "W10112")].status, synced[("M1", "W10112")].decided_by) == (
         "applied", "Owen Castellanos")
@@ -398,7 +447,7 @@ def one(s: Settings, type_: str, ref: str):
     rec = Record(m.fingerprint, m.type, m.employee_ref, m.field,
                  classify.change_class(m.type, m.field), govern.action_for(m), "held",
                  "run_test", "run_test")
-    return m, rec, govern._target(s, inputs)
+    return m, rec, govern.target_for(s, inputs)
 
 
 def test_a_forged_warrant_id_writes_nothing(warrant, tmp_path: Path) -> None:
@@ -507,6 +556,7 @@ def test_the_cli_runs_approves_and_syncs(warrant, tmp_path: Path, monkeypatch, c
     assert cli.main(["run", *dirs, "--reports", str(tmp_path / "reports")]) == 0
     out = capsys.readouterr().out
     assert "8  applied" in out and "10  held for approval" in out and "Report:" in out
+    assert "4 format differences correctly ignored" in out
     assert cli.main(["approve", "W10026", "--as", PRINCIPAL, "--decision", "approved",
                      *dirs]) == 1
     assert "second person" in capsys.readouterr().err
@@ -514,6 +564,10 @@ def test_the_cli_runs_approves_and_syncs(warrant, tmp_path: Path, monkeypatch, c
                      "approved", *dirs]) == 0
     assert cli.main(["sync", *dirs]) == 0
     assert "1 moved on" in capsys.readouterr().out
+    assert cli.main(["show", "W10015", *dirs]) == 0
+    out = capsys.readouterr().out
+    assert "Purpose" in out and "committed" in out and "none needed — routine" in out
+    assert cli.main(["show", "W99999", *dirs]) == 1
 
 
 def test_the_cli_refuses_to_run_without_a_principal(warrant, tmp_path: Path, monkeypatch,
@@ -532,4 +586,37 @@ def test_the_cli_refuses_a_principal_who_is_an_approver(warrant, tmp_path: Path,
     before = len(warrant.events())
     assert cli.main(["run", "--state", str(tmp_path / "state")]) == 2
     assert "second person" in capsys.readouterr().err
+    assert len(warrant.events()) == before
+
+
+# ── the demo is the same code, narrated ──────────────────────────────────────────────────────
+
+
+def test_the_demo_shows_all_five_beats(warrant, tmp_path: Path, capsys) -> None:
+    s = settings(tmp_path)
+    assert demo(s, WarrantClient(warrant.url, warrant.token)) == 0
+    out = capsys.readouterr().out
+    for title in ("1 · Compare", "2 · Routine fixes went through on their own",
+                  "3 · A terminated employee still active in payroll", "4 · The pattern",
+                  "5 · And the record can be checked"):
+        assert title in out
+    assert "18 real mismatches" in out and "4 format differences correctly ignored" in out
+    assert "Purpose       Change the ADP home department for W10015" in out
+    assert "No warrant exists until Owen Castellanos decides" in out
+    assert "refused — cannot decide an action you authorised" in out
+    assert "ADP now: Position_Status T, Termination_Date 2026-09-18" in out
+    assert "7 org changes share the effective date 2026-10-01" in out
+    assert "GET /verify: intact" in out
+    with State(s.db) as state:
+        statuses = Counter(r.status for r in state.all())
+    assert statuses == {"applied": 9, "held": 9}
+
+
+def test_the_demo_refuses_stale_state(warrant, tmp_path: Path, capsys) -> None:
+    s = settings(tmp_path)
+    s.state_dir.mkdir(parents=True)
+    s.db.touch()
+    before = len(warrant.events())
+    assert demo(s, WarrantClient(warrant.url, warrant.token)) == 2
+    assert "fresh state" in capsys.readouterr().out
     assert len(warrant.events()) == before

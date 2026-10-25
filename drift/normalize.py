@@ -14,6 +14,9 @@ disagrees:
 - **names** — legal names only (Workday's `Preferred_Name` is never compared); whitespace
   collapsed; compared case-insensitively.
 
+`format_differences` lists the values these rules reconcile record by record — what a naive
+comparison would have flagged and Drift deliberately ignores.
+
 Normalisation never hides a difference by guessing. A value it cannot map is kept with a marker
 (`unrecognised:…`, `unmapped:…`, `ADP:…`), so it compares unequal to anything and gets looked at.
 A value it cannot parse, or an ID that appears twice, stops the run (`SourceDataError`).
@@ -262,3 +265,59 @@ def normalize(workers: Iterable[SourceRow], payroll: Iterable[SourceRow],
         if employee_of.get(associate) not in workday:
             pairs.append(pair(f"ADP:{associate}", None, a))
     return pairs
+
+
+# ── what normalisation reconciles ────────────────────────────────────────────────────────────
+
+
+FORMAT_KINDS = {
+    "work_email": "email differs only in case or spacing",
+    "pay": "same pay held in a different form (hourly vs annual, within $1)",
+    "legal_name": "legal name differs only in case or spacing",
+    "preferred_name": "Workday preferred name differs from the legal name ADP holds",
+}
+
+
+@dataclass(frozen=True)
+class FormatDifference:
+    employee_ref: str
+    field: str  # a key of FORMAT_KINDS
+    why: str
+
+
+def format_differences(workers: Iterable[SourceRow], payroll: Iterable[SourceRow],
+                       ref: Reference) -> list[FormatDifference]:
+    """Matched people whose values differ as exported but agree once normalised: the
+    differences Drift deliberately does not flag.
+
+    Only per-record differences count. The translations every row goes through — status
+    vocabularies, cost-centre and location codes, manager ids through the crosswalk — are how
+    the two systems are joined, not differences in any one record."""
+    workday = _index(workers, "Employee_ID")
+    adp = _index(payroll, "Associate_ID")
+    out: list[FormatDifference] = []
+    for employee, w in workday.items():
+        a = adp.get(ref.crosswalk.get(employee, ""))
+        if a is None:
+            continue
+        wv, av = w.values, a.values
+        found = []
+        if wv["Work_Email"] != av["Work_Email"] and email(wv["Work_Email"]) == email(
+                av["Work_Email"]):
+            found.append("work_email")
+        wd_pay = (text(wv["Annual_Base_Pay"]), text(wv["Hourly_Rate"]))
+        adp_pay = (text(av["Annual_Salary"]), text(av["Rate_Amount"]))
+        if wd_pay != adp_pay and pay_matches(
+                annual_pay_cents(wv["Pay_Rate_Type"], wv["Annual_Base_Pay"], wv["Hourly_Rate"]),
+                annual_pay_cents(av["Rate_Type"], av["Annual_Salary"], av["Rate_Amount"])):
+            found.append("pay")
+        wd_name = legal_name(wv["Legal_First_Name"], wv["Legal_Last_Name"])
+        adp_name = legal_name(av["First_Name"], av["Last_Name"])
+        if (wv["Legal_First_Name"], wv["Legal_Last_Name"]) != (
+                av["First_Name"], av["Last_Name"]) and name_key(wd_name) == name_key(adp_name):
+            found.append("legal_name")
+        preferred = text(wv["Preferred_Name"])
+        if preferred and name_key(preferred) != name_key(text(wv["Legal_First_Name"])):
+            found.append("preferred_name")
+        out += [FormatDifference(employee, f, FORMAT_KINDS[f]) for f in found]
+    return out

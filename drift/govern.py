@@ -266,7 +266,7 @@ def read_inputs(source_dir: Path) -> Inputs:
     return Inputs(detection, by_id, reference, payroll.path)
 
 
-def _target(settings: Settings, inputs: Inputs) -> AdpTarget:
+def target_for(settings: Settings, inputs: Inputs) -> AdpTarget:
     return AdpTarget(inputs.adp_export, settings.target, inputs.workers, inputs.reference,
                      settings.today)
 
@@ -370,7 +370,7 @@ def run(settings: Settings, client: WarrantClient) -> RunResult:
     rules, approvers = classify.load_rules(), classify.load_approvers()
     classify.check_principal(settings.principal, approvers)
     inputs = read_inputs(settings.source_dir)
-    target = _target(settings, inputs)
+    target = target_for(settings, inputs)
     patterns = find_patterns(inputs.detection.mismatches, inputs.detection.pairs)
     started = datetime.now(UTC)
 
@@ -486,6 +486,38 @@ def approve(settings: Settings, client: WarrantClient, selector: str, approver: 
 
 
 @dataclass(frozen=True)
+class Shown:
+    record: Record | None  # Drift's view, when the selector names one of its mismatches
+    warrant: dict | None  # GET /warrant/:id — only once a warrant exists
+    approval: dict | None  # GET /approval/:id — for a correction that was held
+
+
+def show(settings: Settings, client: WarrantClient, selector: str) -> Shown:
+    """One correction as Warrant holds it, by employee ref, fingerprint prefix, warrant id or
+    approval id. Read-only. A held correction has no warrant yet, so only its approval shows."""
+    s = selector.strip()
+    with State(settings.db) as state:
+        records = state.all()
+        if s.startswith("wrt_"):
+            rec = next((r for r in records if r.warrant_id == s), None)
+        elif s.startswith("apr_"):
+            rec = next((r for r in records if r.approval_id == s), None)
+        else:
+            rec = find(state, s)
+    warrant_id = s if s.startswith("wrt_") else rec.warrant_id if rec else None
+    approval_id = s if s.startswith("apr_") else rec.approval_id if rec else None
+    approval = None
+    if approval_id:
+        status, answer = client.approval(approval_id)
+        approval = answer if status == 200 else None
+        warrant_id = warrant_id or (approval or {}).get("warrant_id")
+    warrant = client.warrant(warrant_id) if warrant_id else None
+    if warrant is None and approval is None and rec is None:
+        raise LookupError(f"Warrant has no record of {s!r}")
+    return Shown(rec, warrant, approval)
+
+
+@dataclass(frozen=True)
 class SyncResult:
     outcome: str  # completed | warrant_unreachable
     detail: str | None
@@ -543,7 +575,7 @@ def _sync_one(rec: Record, m: Mismatch | None, *, client: WarrantClient, target:
 def sync(settings: Settings, client: WarrantClient) -> SyncResult:
     """Ask Warrant about every held request; write + commit the ones a human has approved."""
     inputs = read_inputs(settings.source_dir)
-    target = _target(settings, inputs)
+    target = target_for(settings, inputs)
     current = {m.fingerprint: m for m in inputs.detection.mismatches}
     changed: list[Record] = []
     waiting: list[Record] = []

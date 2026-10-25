@@ -37,6 +37,16 @@ def test_detection_finds_18_of_18_flags_no_decoy_and_nothing_extra(detection: De
     assert len(detection.mismatches) == 18
 
 
+def test_the_format_differences_ignored_are_exactly_the_four_decoys(
+        detection: Detection) -> None:
+    expected = {"D1": "work_email", "D2": "pay", "D3": "preferred_name"}
+    planted = {(e["employee_ref"], expected[e["type"]]) for e in PLANTED["decoys"]}
+    assert {(f.employee_ref, f.field) for f in detection.ignored} == planted
+    assert len(detection.ignored) == 4
+    flagged = {(m.employee_ref, m.field) for m in detection.mismatches}
+    assert not flagged & planted
+
+
 def test_fingerprint_is_the_documented_hash_and_stable(detection: Detection) -> None:
     for m in detection.mismatches:
         parts = [m.type, m.employee_ref, m.field, m.workday_value or "", m.adp_value or ""]

@@ -96,6 +96,15 @@ class AdpTarget:
             **({} if changed else {"note": "ADP already matched Workday; nothing to change"}),
         }
 
+    def row(self, m: Mismatch) -> dict[str, str] | None:
+        """The ADP row a mismatch is about, as the copy (or, before any write, the export) holds
+        it. Read-only; None if ADP has no such row."""
+        if m.type == "M5":
+            associate = CREATED_ID_PREFIX + m.employee_ref
+        else:
+            associate = self._associate(m)
+        return next((r for r in self._read()[1] if r["Associate_ID"].strip() == associate), None)
+
     # ── what each fix writes ─────────────────────────────────────────────────────────────────
 
     def _worker(self, m: Mismatch) -> Mapping[str, str]:

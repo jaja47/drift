@@ -16,7 +16,7 @@ Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
 | ✅ | 6 · **GATE A** | 2 | answered 2026-10-24 |
 | ✅ | 7 · Explanations + patterns | 3 | done 2026-10-24 |
 | ✅ | 8 · Governance + apply | 3 | done 2026-10-25 |
-| ⬜ | 9 · **GATE B** | 3 | |
+| ⏸ | 9 · **GATE B** | 3 | demo run 2026-10-25 — waiting for the human's answers |
 | ⬜ | 10 · Review page | 4 | |
 | ⬜ | 11 · Demo script | 4 | |
 | ⬜ | 12 · n8n (stretch) | 4 | |
@@ -486,6 +486,69 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
     survived;
   - no test had a decision made outside Drift.
 
+## Step 9 · GATE B — prepared and run, waiting for answers
+
+**The human's decisions before the gate (2026-10-25):**
+- **Keep the read-back check.** Before every write, Drift reads the warrant back from Warrant.
+  See Deviations → Step 8.
+- **Fill both demo gaps, then run GATE B.**
+
+**Built for the gate:**
+- **The "format differences ignored" count (beat 1).** `normalize.format_differences()` lists
+  matched people whose values differ as exported but agree once normalised:
+  - email case or spacing;
+  - the same pay held in another form (hourly vs annual, within $1);
+  - legal-name case or spacing;
+  - a Workday preferred name that differs from the legal name.
+
+  The translations every row goes through (status letters, cost-centre and location codes,
+  manager ids) are not counted. `detect_sources` puts the list on `Detection.ignored`. `detect`,
+  `run`, the report and the demo print it. **On the committed data it finds exactly the 4 decoys,
+  without reading planted.json.**
+- **One warrant, opened (beat 2).** `govern.show()` and `python -m drift.cli show <ref|fingerprint|
+  wrt_…|apr_…>` (and `make show REF=…`) print one correction as Warrant holds it: state, policy,
+  actor, principal, the change, the purpose, both sources, the approval, what was written, and
+  the event count. A held correction shows its approval and "No warrant exists until <approver>
+  decides". `show` follows an approval to its warrant even before `sync`.
+- **A rough `make demo` (Step 11 polishes it).** `drift/demo.py` narrates the five beats. It
+  calls `run`, `show`, `approve` and `sync` (the same functions as the CLI) and explains one case.
+  It runs in one in-memory Warrant and refuses to start if `state/drift.db` already exists.
+  - It picks the clearest termination: W10112, terminated 2026-09-18, before the cutoff.
+  - It shows it held.
+  - The principal tries to approve and is refused.
+  - Owen Castellanos approves, `sync` writes it, and the warrant is shown with the approval.
+
+**`make demo`, as shown at the gate:**
+1. 201 compared, 18 real mismatches, 4 format differences correctly ignored (listed).
+2. 8 routine fixes applied with warrant ids; W10015's warrant opened (purpose, sources,
+   "none needed — routine", Home_Department 410 → 420, committed).
+3. W10112 held for Owen Castellanos, ADP untouched (status A). Murtaza Dibbo was refused twice
+   (second person; not the person asked). Owen Castellanos approved, sync → applied, ADP now
+   T / 2026-09-18. The other 9 are still held.
+4. The 2026-10-01 reorg pattern → IT Application Engineering.
+5. `GET /verify`: intact, 29 events.
+
+Exit 0, and no deno left running.
+
+**Verified by running:**
+- `make test` → pytest **294 passed**; Warrant **56 passed**.
+- New tests:
+  - format differences, rule by rule on hand-built rows: code translations alone don't count;
+    a real email, pay (>$1) or name difference doesn't count;
+  - the scored test: exactly the 4 decoys, none of them flagged;
+  - `show` for applied, held, approved, rejected, by warrant id, by approval id, unknown, and
+    before sync for a decision made directly in Warrant;
+  - the CLI `show`;
+  - the demo prints all five beats and leaves 9 applied / 9 held;
+  - the demo refuses stale state and writes nothing to the ledger.
+- **The tests can fail:** 7 new deliberate breakages were all caught: a real email or pay
+  difference counted, the preferred name not counted, code translations counted, `show` not
+  following an approval, a held correction shown without "no warrant exists", the demo skipping
+  sync. The first run caught 6/7. The gap — no test of `show` before `sync` for a decision made
+  directly in Warrant — was filled. Step 8's 20 breakages still all get caught.
+
+**Questions put to the human at the gate:** see Open questions → GATE B.
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -635,7 +698,8 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
   Warrant down writes nothing at all — not even the copy. Rule 1 is then true of the file's
   existence too.
 - **Stricter than BUILD.md: every write first reads the warrant back from Warrant** (governance:
-  only refuses more, never less). `apply_with_warrant` writes only if `GET /warrant/:id` says
+  only refuses more, never less; made without asking first, then **approved by the human on
+  2026-10-25**). `apply_with_warrant` writes only if `GET /warrant/:id` says
   `issued`, under `hr-record-correction`, for exactly this system, action, object, field and
   class. This holds for the immediate 200 path and for approvals found by `sync`. BUILD.md only
   says "200 → apply".
@@ -684,14 +748,34 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
   test checks that nothing under `drift/` uses `subprocess`, `deno`, `server.ts`, `ledger.jsonl`
   or a path into `warrant/`.
 
+**Step 9 (preparing GATE B)**
+- **A rough `make demo` exists now** (`drift/demo.py`, `cli demo`), because BUILD.md's GATE B runs
+  one. Step 11 still owns the polished version: generating data, narration pacing, opening the
+  page.
+- **`Preferred_Name` joined `WORKDAY_COLUMNS`** (the connector contract), because the
+  format-difference count reads it. A Workday export without it is now refused.
+- **`Detection` has a third field, `ignored`**, the format differences. `detect_sources` reads
+  each source once and passes the rows to both `normalize` and `format_differences`.
+- **New `show` command and `make show`.** `govern.target_for` (was `_target`) is public, and
+  `AdpTarget.row()` reads one ADP row, so the demo can narrate. The `not_built` CLI stub is gone;
+  every command is built.
+- **PLAN.md §1 overstates the ledger.** It says "every action, refusal, hold, approval and
+  rejection lands in Warrant's hash-chained ledger". A *rejection* by an approver does
+  (`warrant.refused`). A *refused request* — a 422, or a refused decision such as the principal
+  trying to approve — writes no event, by Warrant's design (tested in Step 3). The demo says
+  exactly this. Raised at the gate.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
   terminal does. Nobody has yet pressed Ctrl-C in a real terminal.
 - **Tested on macOS only** (bash 3.2, BSD tools). Not run on Linux.
-- **`make app` and `make demo` exist but are not built yet** (Steps 10 and 11). `demo` reaches the
-  `cli.py` stub, which exits 2. *(`make run`, `make approve` and `make sync` work as of Step 8,
-  run by hand once.)*
+- **`make app` is not built yet** (Step 10). *(`make run`, `make approve` and `make sync` work as
+  of Step 8, run by hand once; a rough `make demo` and `make show` as of Step 9.)*
+- **Step 9: `make demo` leaves `state/drift.db` behind, but its ledger was in memory.** A
+  following `make run` / `make show` (which persist to `state/ledger.jsonl`) would find records
+  whose warrants that ledger has never seen. Until Step 11 settles it, run `make reset` after
+  `make demo`.
 - **Step 2:** the mutation checks (in every step since) are one-off scripts and are not in the
   suite. *(Resolved in Step 5: "no accidental extras" is now also proven by the real detector,
   with 18/18, 0 decoys and 0 extras.)*
@@ -726,27 +810,28 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
   position. Not validated with anyone in payroll.
 - **Step 8: `make approve NOTE="…"` breaks if the note contains a double quote** (shell quoting
   in the Makefile). The CLI itself is fine.
-- **Step 8: the "4 format differences ignored" count (demo beat 1) is not computed anywhere yet.**
-  The detector cannot read planted.json, so it needs its own count of pairs that differed only in
-  format. That belongs to Step 10's top row, and GATE B's rough demo will be missing it.
+- ~~**Step 8: the "4 format differences ignored" count (demo beat 1) is not computed anywhere
+  yet.**~~ *Resolved in Step 9: `normalize.format_differences()`, scored at exactly the 4 decoys.*
 - **Two slow test runs (>120 s and >300 s of wall time)** happened while pytest itself reported
   3–4 s. Reruns took 4–5 s and the slowness couldn't be reproduced, so the cause is unknown. It
   looks environmental, not code.
 
 ## Open questions (for later steps — nothing decided yet)
 
-- *(The three Step 8 questions are answered under Deviations → Step 8.)*
-- **GATE B, the approvers:** Priya Raman (compensation), Owen Castellanos (employment status) and
-  Grace Adeyemi (identity) are placeholders. Are three separate approvers right, and with these
-  roles? Which roles SPS would really use is still a question for HR Operations (PLAN.md §5).
-- **GATE B, beat 2 ("open one warrant"):** nothing in the CLI shows one warrant's purpose and
-  sources yet. A rough demo can use `curl $WARRANT_URL/warrant/<id>`. Step 10's expander is the
-  real answer.
+- *(The three Step 8 questions are answered under Deviations → Step 8. GATE B's beat-2 gap was
+  filled by `show`.)*
+- **GATE B, asked 2026-10-25 — waiting:**
+  1. Do all five demo beats in PLAN.md §1 happen, as you would want to show them?
+  2. **Approvers:** Priya Raman (compensation), Owen Castellanos (employment status) and Grace
+     Adeyemi (identity) are fictional placeholders. Are three separate approvers right, and with
+     these roles? (Which roles SPS would really use is still a question for HR Operations,
+     PLAN.md §5.)
+  3. **Ledger wording:** keep Warrant as it is (a refused request leaves no event) and correct
+     PLAN.md's wording in the README (Step 13)? Or should refusals be recorded somewhere? Recording
+     them in Warrant would change Warrant beyond the agreed scope.
 
 ## Next step
 
-Step 9 · **GATE B** — end-to-end check. Run a rough `make demo` (Step 11 builds the polished one;
-today `demo` is still the stub) and ask the human to watch for the five demo beats in PLAN.md §1.
-Stop until answered. Raise the two GATE B questions above. Known gaps for the rough demo:
-- no "format differences ignored" count;
-- no CLI view of a single warrant.
+**Waiting at GATE B** for the answers above. After that: record them here, mark Step 9 done, then
+Step 10 · Review page (`app.py`, Streamlit), calling the same functions: `govern.run / show /
+approve / sync`, `explain`, `report.ignored_line`.

@@ -28,6 +28,7 @@ from drift.normalize import (
     Pair,
     annual_pay_cents,
     email,
+    format_differences,
     legal_name,
     manager_from_adp,
     mapped,
@@ -118,7 +119,7 @@ def test_adp_manager_is_translated_through_the_crosswalk() -> None:
 
 WD_DEFAULTS = {
     "Employee_ID": "W1", "Legal_First_Name": "Ada", "Legal_Last_Name": "Lovelace",
-    "Work_Email": "ada.lovelace@x.example", "Worker_Status": "Active", "Hire_Date": "2020-01-06",
+    "Preferred_Name": "Ada", "Work_Email": "ada.lovelace@x.example", "Worker_Status": "Active", "Hire_Date": "2020-01-06",
     "Termination_Date": "", "Manager_Employee_ID": "W2", "Cost_Center": "CC-410 Analytics",
     "Location": "Toronto, ON", "Pay_Rate_Type": "Salary", "Annual_Base_Pay": "90000.00",
     "Hourly_Rate": "", "Comp_Effective_Date": "2025-04-01", "Org_Effective_Date": "2024-01-01",
@@ -190,6 +191,43 @@ def test_a_malformed_value_names_its_row_and_column() -> None:
 def test_preferred_name_is_not_compared() -> None:
     (p,) = normalize([wd(Preferred_Name="Addie")], [adp()], REF)
     assert p.wd_name_key == p.adp_name_key
+
+
+# ── what normalisation reconciles (and Drift reports as ignored) ─────────────────────────────
+
+
+def ignored(w: SourceRow, a: SourceRow) -> list[str]:
+    return [f.field for f in format_differences([w], [a], REF)]
+
+
+def test_the_code_translations_every_row_needs_are_not_format_differences() -> None:
+    # Active/A, CC-410 Analytics/410, Toronto, ON/TOR, W2/G2 differ as exported, on every row.
+    assert ignored(wd(), adp()) == []
+
+
+@pytest.mark.parametrize("w, a, expected", [
+    (wd(), adp(Work_Email="Ada.Lovelace@x.example"), ["work_email"]),
+    (wd(), adp(Work_Email="ada.lovelace@x.example "), ["work_email"]),
+    (wd(), adp(Work_Email="someone.else@x.example"), []),  # a real difference, not a format one
+    (wd(), adp(Annual_Salary="90000"), ["pay"]),
+    (wd(), adp(Annual_Salary="90000.75"), ["pay"]),  # within $1
+    (wd(), adp(Annual_Salary="90001.01"), []),  # beyond $1: a real pay mismatch
+    (wd(Pay_Rate_Type="Hourly", Annual_Base_Pay="", Hourly_Rate="24.98"),
+     adp(Rate_Type="Hourly", Annual_Salary="51958.00"), ["pay"]),  # hourly held as annual
+    (wd(), adp(Last_Name="LOVELACE"), ["legal_name"]),
+    (wd(Legal_Last_Name="Lovelace "), adp(), ["legal_name"]),
+    (wd(), adp(Last_Name="Byron"), []),  # a real name difference
+    (wd(Preferred_Name="Addie"), adp(), ["preferred_name"]),
+    (wd(Preferred_Name=""), adp(), []),
+    (wd(Preferred_Name="ADA"), adp(), []),
+])
+def test_each_format_difference_is_found_and_real_differences_are_not(
+        w: SourceRow, a: SourceRow, expected: list[str]) -> None:
+    assert ignored(w, a) == expected
+
+
+def test_unmatched_people_have_no_format_differences() -> None:
+    assert format_differences([wd(Employee_ID="W9", Work_Email="X@x.example")], [adp()], REF) == []
 
 
 # ── the real exports ─────────────────────────────────────────────────────────────────────────
