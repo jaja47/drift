@@ -4,8 +4,8 @@ Deterministic code reading a reviewed table. The LLM is not involved: which corr
 human is decided here, and explanations (explain.py) cannot change it.
 
 Two rules hold whatever the file says:
-- anything not listed — an unknown type, or a known type with a different field — is `identity`,
-  the strictest class, never `routine`;
+- anything not listed — an unknown type, or a known type with a field it does not list — is
+  `identity`, the strictest class, never `routine`;
 - a pay, status, record or name field can never be `routine`; a file that says so is refused.
 """
 
@@ -31,7 +31,7 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class TypeRule:
-    field: str
+    fields: frozenset[str]  # the field(s) this type may carry
     change_class: str
     label: str
 
@@ -45,12 +45,18 @@ def load_rules(path: Path = CONFIG) -> Mapping[str, TypeRule]:
     for type_, spec in types.items():
         if not isinstance(spec, dict) or not {"field", "class", "label"} <= spec.keys():
             raise ConfigError(f"{path.name}: {type_} needs field, class and label")
-        field, change_class = str(spec["field"]), str(spec["class"])
+        listed = spec["field"] if isinstance(spec["field"], list) else [spec["field"]]
+        fields = frozenset(str(f) for f in listed)
+        change_class = str(spec["class"])
+        if not fields:
+            raise ConfigError(f"{path.name}: {type_} lists no field")
         if change_class not in CLASSES:
             raise ConfigError(f"{path.name}: {type_} has unknown class {change_class!r}")
-        if change_class == "routine" and field in NEVER_ROUTINE:
-            raise ConfigError(f"{path.name}: {type_} would make {field} routine — never allowed")
-        rules[str(type_)] = TypeRule(field, change_class, str(spec["label"]))
+        if change_class == "routine" and fields & NEVER_ROUTINE:
+            sensitive = ", ".join(sorted(fields & NEVER_ROUTINE))
+            raise ConfigError(
+                f"{path.name}: {type_} would make {sensitive} routine — never allowed")
+        rules[str(type_)] = TypeRule(fields, change_class, str(spec["label"]))
     return rules
 
 
@@ -61,7 +67,7 @@ def _rules() -> Mapping[str, TypeRule]:
 
 def change_class(type_: str, field: str, rules: Mapping[str, TypeRule] | None = None) -> str:
     rule = (rules if rules is not None else _rules()).get(type_)
-    if rule is None or rule.field != field:
+    if rule is None or field not in rule.fields:
         return STRICTEST
     return rule.change_class
 

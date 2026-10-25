@@ -137,6 +137,37 @@ m7 AS (
       AND wd_name_key IS DISTINCT FROM adp_name_key
 ),
 
+-- M8 · any other compared field that disagrees and no type above covers (added at GATE A).
+-- An unexplained disagreement is reported, not ignored; it is classed identity, so it is held.
+m8 AS (
+    -- status or termination date, except the M1 case (already reported there)
+    SELECT 'M8' AS type, employee_ref, 'worker_status' AS field,
+           concat_ws(' ', wd_status, CAST(wd_termination_date AS VARCHAR)) AS workday_value,
+           concat_ws(' ', adp_status, CAST(adp_termination_date AS VARCHAR)) AS adp_value,
+           workday_source, adp_source,
+           NULL::DATE AS org_effective_date, NULL::DATE AS comp_effective_date
+    FROM pairs
+    WHERE match = 'both'
+      AND (wd_status IS DISTINCT FROM adp_status
+           OR wd_termination_date IS DISTINCT FROM adp_termination_date)
+      AND NOT (wd_status = 'terminated' AND adp_status IS DISTINCT FROM 'terminated')
+    UNION ALL
+    SELECT 'M8', employee_ref, 'location', wd_location, adp_location,
+           workday_source, adp_source, NULL::DATE, NULL::DATE
+    FROM pairs
+    WHERE match = 'both' AND wd_location IS DISTINCT FROM adp_location
+    UNION ALL
+    SELECT 'M8', employee_ref, 'work_email', wd_email, adp_email,
+           workday_source, adp_source, NULL::DATE, NULL::DATE
+    FROM pairs
+    WHERE match = 'both' AND wd_email IS DISTINCT FROM adp_email
+    UNION ALL
+    SELECT 'M8', employee_ref, 'rate_type', wd_rate_type, adp_rate_type,
+           workday_source, adp_source, NULL::DATE, NULL::DATE
+    FROM pairs
+    WHERE match = 'both' AND wd_rate_type IS DISTINCT FROM adp_rate_type
+),
+
 found AS (
     SELECT * FROM m1
     UNION ALL BY NAME SELECT * FROM m2
@@ -145,6 +176,7 @@ found AS (
     UNION ALL BY NAME SELECT * FROM m5
     UNION ALL BY NAME SELECT * FROM m6
     UNION ALL BY NAME SELECT * FROM m7
+    UNION ALL BY NAME SELECT * FROM m8
 )
 
 -- The same disagreement gets the same fingerprint on every run, so a rerun can recognise it.

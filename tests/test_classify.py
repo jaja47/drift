@@ -39,8 +39,8 @@ def test_no_compensation_status_missing_record_or_name_mismatch_is_routine() -> 
 
 def test_only_cost_centre_and_manager_are_routine_in_the_shipped_config() -> None:
     rules = load_rules()
-    assert {r.field for r in rules.values() if r.change_class == "routine"} == {
-        "cost_center", "manager"}
+    routine = set().union(*(r.fields for r in rules.values() if r.change_class == "routine"))
+    assert routine == {"cost_center", "manager"}
     for type_ in SENSITIVE_TYPES:
         assert rules[type_].change_class != "routine"
 
@@ -49,6 +49,7 @@ def test_only_cost_centre_and_manager_are_routine_in_the_shipped_config() -> Non
     ("M9", "cost_center"),  # unknown type, even with a routine-looking field
     ("M3", "pay"),  # known routine type carrying a different field
     ("M4", "location"),
+    ("M8", "pay"),  # the catch-all only lists the fields no other type covers
     ("", ""),
 ])
 def test_anything_unrecognised_is_classed_identity(type_: str, field: str) -> None:
@@ -66,6 +67,8 @@ def write_config(tmp_path: Path, body: str) -> Path:
     ("types:\n  M1: {field: worker_status, class: routine, label: x}\n", "worker_status routine"),
     ("types:\n  M5: {field: record, class: routine, label: x}\n", "record routine"),
     ("types:\n  M7: {field: legal_name, class: routine, label: x}\n", "legal_name routine"),
+    ("types:\n  M8: {field: [location, pay], class: routine, label: x}\n", "pay routine"),
+    ("types:\n  M3: {field: [], class: identity, label: x}\n", "lists no field"),
     ("types:\n  M3: {field: cost_center, class: Routine, label: x}\n", "unknown class"),
     ("types:\n  M3: {field: cost_center, label: x}\n", "needs field, class and label"),
     ("{}\n", "no `types` table"),
@@ -78,5 +81,10 @@ def test_a_config_that_would_weaken_a_rule_is_refused(tmp_path: Path, body: str,
 
 def test_the_shipped_config_loads_and_uses_only_known_classes() -> None:
     rules = load_rules(CONFIG)
-    assert set(rules) == {"M1", "M2", "M3", "M4", "M5", "M6", "M7"}
+    assert set(rules) == {"M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"}
     assert {r.change_class for r in rules.values()} <= set(CLASSES)
+
+
+@pytest.mark.parametrize("field", ["worker_status", "location", "work_email", "rate_type"])
+def test_the_catch_all_is_always_held_as_identity(field: str) -> None:
+    assert change_class("M8", field) == "identity"

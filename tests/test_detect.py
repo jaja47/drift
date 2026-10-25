@@ -161,6 +161,16 @@ def found(*pairs: Pair) -> list[tuple[str, str]]:
     (replace(ADP_ONLY, adp_status="terminated"), [("M6", "record")]),
     # M7
     (replace(SAME, adp_name="Ada Byron", adp_name_key="ada byron"), [("M7", "legal_name")]),
+    # M8 — whatever no other type covers is still reported (added at GATE A)
+    (replace(SAME, adp_location="CGY"), [("M8", "location")]),
+    (replace(SAME, adp_email="other@x.example"), [("M8", "work_email")]),
+    (replace(SAME, adp_rate_type="Hourly"), [("M8", "rate_type")]),
+    (replace(SAME, adp_status="terminated", adp_termination_date=date(2026, 9, 1)),
+     [("M8", "worker_status")]),  # active in Workday, terminated in ADP
+    (replace(SAME, wd_status="leave"), [("M8", "worker_status")]),
+    (replace(SAME, wd_status="terminated", adp_status="terminated",
+             wd_termination_date=date(2026, 9, 18), adp_termination_date=date(2026, 9, 25)),
+     [("M8", "worker_status")]),  # both terminated, different dates
     # one person, two disagreements → two rows
     (replace(SAME, adp_department="420", adp_manager="W3"),
      [("M3", "cost_center"), ("M4", "manager")]),
@@ -169,10 +179,10 @@ def test_rule(pair: Pair, expected: list[tuple[str, str]]) -> None:
     assert found(pair) == expected
 
 
-def test_fields_detection_does_not_compare_never_produce_a_row() -> None:
-    """Location, email and rate type are normalised but are not mismatch types in PLAN.md."""
-    odd = replace(SAME, adp_location="CGY", adp_email="other@x.example", adp_rate_type="Hourly")
-    assert found(odd) == []
+def test_m8_never_repeats_what_another_type_reports() -> None:
+    """Terminated in Workday and active in ADP is M1 only, though status and date both differ."""
+    pair = replace(SAME, wd_status="terminated", wd_termination_date=date(2026, 9, 18))
+    assert found(pair) == [("M1", "worker_status")]
 
 
 def test_mismatch_columns_match_build_md() -> None:

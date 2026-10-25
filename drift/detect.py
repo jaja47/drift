@@ -22,7 +22,7 @@ SQL_PATH = Path(__file__).with_name("detect.sql")
 @dataclass(frozen=True)
 class Mismatch:
     fingerprint: str  # sha256(type|employee_ref|field|workday_value|adp_value)
-    type: str  # M1–M7
+    type: str  # M1–M8
     employee_ref: str  # Workday Employee_ID, or ADP:<Associate_ID>; never a name
     field: str
     workday_value: str | None

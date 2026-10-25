@@ -6,8 +6,8 @@
 #   employment_status  held until a named human approves
 #   identity           held until a named human approves — and the class of anything not listed
 #
-# A type is only recognised together with the field listed for it. An unknown type, or a known
-# type carrying a different field, is classed `identity`, never `routine`.
+# A type is only recognised together with the field(s) listed for it. An unknown type, or a known
+# type carrying a field it does not list, is classed `identity`, never `routine`.
 #
 # classify.py also refuses to load this file if a pay, status, record or name field is marked
 # routine, so an edit here cannot quietly send a pay change through unreviewed.
@@ -43,3 +43,7 @@ types:
     field: legal_name
     class: identity
     label: Legal name differs
+  M8:  # added at GATE A: a disagreement no rule above explains is held, never ignored
+    field: [worker_status, location, work_email, rate_type]
+    class: identity
+    label: Other difference — no specific rule covers it

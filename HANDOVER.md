@@ -2,6 +2,8 @@
 
 > **Rule:** update this file at the end of every step.
 
+Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
+
 ## Where the build stands
 
 | | Step | Day | State |
@@ -11,7 +13,7 @@
 | ✅ | 3 · Warrant policy | 1 | done 2026-10-24 |
 | ✅ | 4 · Connectors + normalisation | 2 | done 2026-10-24 |
 | ✅ | 5 · Detection | 2 | done 2026-10-24 |
-| ⬜ | 6 · **GATE A** | 2 | |
+| ✅ | 6 · **GATE A** | 2 | answered 2026-10-24 |
 | ⬜ | 7 · Explanations + patterns | 3 | |
 | ⬜ | 8 · Governance + apply | 3 | |
 | ⬜ | 9 · **GATE B** | 3 | |
@@ -239,6 +241,37 @@
   - the config making M2 routine;
   - the never-routine guard dropping pay.
 
+## Step 6 · GATE A — the human's answers
+
+The table from `python -m drift.cli detect` was shown: 18 rows, plus both export headers.
+
+1. **Do the 18 rows read like real HR problems?** Yes.
+2. **Is anything classed wrongly?** No, all classes are correct. The after-cutoff termination
+   (W10026) and after-cutoff new hire (W10200) **stay held**. Step 7's explanation may say
+   they're likely timing, but a human still decides.
+3. **Are the column names believable?** Yes, as they are.
+4. **Differences no type covers?** Add a catch-all type, **always held**.
+
+**Done as a result of answer 4:**
+- **New type M8 · "Other difference — no specific rule covers it"** (in `detect.sql` and
+  `change_classes.yaml`), classed `identity`. It reports a disagreement in:
+  - status or termination date, except the M1 case;
+  - location;
+  - email (after normalisation);
+  - rate type.
+- **`classify.py` accepts a list of fields per type.** The never-routine guard checks every listed
+  field, so making M8 routine is refused because the list includes `worker_status`.
+- **Verified:**
+  - pytest 124 passed; Warrant 56 passed;
+  - the real data still gives exactly the 18 planted mismatches and no M8 rows;
+  - 6 new rule cases cover location, email, rate type, active vs terminated, leave vs active, and
+    differing termination dates;
+  - M1 is never duplicated as M8;
+  - M8 is `identity` for each of its fields;
+  - a routine M8 config is refused.
+- **The tests can fail:** each deliberate breakage was caught — M8 left out of the union, M8
+  repeating M1, and M8 marked routine.
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -342,6 +375,12 @@
   section and inserts rows through DuckDB's relation API, so no SQL sits in Python.
 - **Approvers are not in `change_classes.yaml` yet.** That's Step 8.
 
+**Step 6 (GATE A)**
+- **Added mismatch type M8** (catch-all, `identity`, always held), as the human decided at the
+  gate. PLAN.md §2 lists M1–M7. planted.json has no M8, and the data has none, so the 18/18 score
+  is unchanged.
+- **`change_classes.yaml`'s `field` may now be a list**, which M8 uses.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
@@ -379,18 +418,7 @@
   principal, but nobody can then approve it, and it expires after 24 h. That fails closed, but it
   leaves the request stuck. Drift should refuse, when it loads its config, any approver equal to
   `DRIFT_PRINCIPAL`, rather than relying on Warrant to catch it.
-- **GATE A (extra question):** detection reports only the 7 planned types. Normalised fields that
-  no type covers are not reported even if they differ:
-  - location;
-  - email beyond case or whitespace;
-  - rate type;
-  - status cases other than "terminated vs not", such as active in Workday but terminated in ADP;
-  - termination date when both sides say terminated.
-
-  Should those become an extra catch-all type classed `identity`, or stay out of scope (and be
-  listed under "What this is not")?
 
 ## Next step
 
-Step 6 · **GATE A** — print `python -m drift.cli detect`, ask BUILD.md's three questions (plus the
-extra one above), and wait for answers.
+Step 7 · Explanations and patterns (`explain.py`, `patterns.py`). M8 rows need a template too.
