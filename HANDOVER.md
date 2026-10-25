@@ -17,7 +17,7 @@ Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
 | ✅ | 7 · Explanations + patterns | 3 | done 2026-10-24 |
 | ✅ | 8 · Governance + apply | 3 | done 2026-10-25 |
 | ✅ | 9 · **GATE B** | 3 | answered 2026-10-25 |
-| ⬜ | 10 · Review page | 4 | |
+| ✅ | 10 · Review page | 4 | done 2026-10-25 |
 | ⬜ | 11 · Demo script | 4 | |
 | ⬜ | 12 · n8n (stretch) | 4 | |
 | ⬜ | 13 · Documentation | 5 | |
@@ -560,6 +560,98 @@ Exit 0, and no deno left running.
   sync. The first run caught 6/7. The gap — no test of `show` before `sync` for a decision made
   directly in Warrant — was filled. Step 8's 20 breakages still all get caught.
 
+## Step 10 · Review page — what was done and verified
+
+- **`drift/app.py`** is the Streamlit page, for a non-technical HR reader. It is layout only. From
+  the top:
+  - the banner "Synthetic data. No real Workday or ADP system is connected.";
+  - before any run, one button: "Compare Workday and ADP";
+  - after a run, the top row: employees compared, mismatches, fixed automatically, waiting for
+    approval, format differences ignored (with an expander saying which and why);
+  - **Root causes** — the patterns, before any row;
+  - **Every mismatch**: a table of employee, what differs in plain words, class, status,
+    approver. What needs a person comes first;
+  - one panel per mismatch, with:
+    - the explanation, likely causes and suggested owner;
+    - the correction as Warrant holds it: warrant, purpose, sources, approval, what was written,
+      ledger events — or, for a held one, who it waits on and that no warrant exists yet;
+  - for held rows, a "Decide as" name field, a note, and Approve / Reject. The outcome shows
+    inside that row, which stays open, plus a pop-up notice;
+  - **footer**: "Audit log: verified ✓ (N events)" from `/verify`, an export of the ledger
+    (`GET /export`, JSONL), and the run report download. It also notes how the explanations were
+    produced.
+- **`drift/review.py`** holds everything the page shows and does:
+  - `snapshot()` assembles the view (statuses from drift.db, explanations, patterns, `/verify`).
+    It is read-only and creates nothing on disk.
+  - `start_run`, `decide` and `check_decisions` call `govern.run` / `approve` / `sync` — the
+    CLI's code — and return an `Outcome`. **`decide` approves, then syncs**, so an approval made
+    on the page is applied straight away (demo beat 3).
+  - `settings_from_env()`: the page reads `DRIFT_PRINCIPAL` and, optionally, `DRIFT_STATE_DIR`,
+    `DRIFT_REPORTS_DIR` and `DRIFT_SOURCE_DIR`.
+- **Shared with the CLI:** `report.shown_facts()` holds one correction as (label, value) pairs;
+  `show` prints them as lines and the page as a table. `WarrantClient.export()` is new.
+- **`.streamlit/config.toml`:**
+  - `server.address = "localhost"` — the page can approve pay changes, so it never listens beyond
+    this machine;
+  - no first-run email prompt;
+  - no usage telemetry;
+  - `toolbarMode = "minimal"` — no "Deploy" button.
+
+**Verified by running:**
+- `make test` → pytest **306 passed**; Warrant **56 passed**.
+- **The page, headless** (Streamlit's `AppTest`, against a real Warrant). The main test is the
+  "done when", done on the page alone:
+  - compare → 201 / 18 / 8 / 10 / 4, the 4 format differences, 18 table rows with the 10
+    waiting first, decide fields on held rows only;
+  - W10015's warrant opened: committed, routine, purpose, sources;
+  - W10112 held, "No warrant exists until Owen Castellanos decides", ADP untouched;
+  - the principal is refused, in the row;
+  - Owen Castellanos approves → applied in the row and in a pop-up, ADP now T / 2026-09-18,
+    9 waiting, still 8 automatic, "1 more fixed after a named person approved";
+  - the reorg pattern comes first;
+  - "Audit log: verified ✓";
+  - a rejection is never applied;
+  - no stray markdown, and the time reads `YYYY-MM-DD HH:MM UTC`.
+
+  Also tested:
+  - the first screen writes nothing to disk;
+  - "Check for decisions" applies a decision made through the CLI;
+  - an empty name decides nothing;
+  - with Warrant down, the page says so and the run fails closed with no ADP copy;
+  - with no principal, the page refuses;
+  - the Streamlit config;
+  - plain-words descriptions and money formatting.
+- **A rule test keeps `app.py` layout-only.** It imports only streamlit, `drift` and
+  `drift.report`, and never calls `govern.run/approve/sync`, `State`, the target or detection.
+- **In a real browser** (Chrome, driven by Claude), with the page started the way `make app` does
+  (`dev.sh --persist`, clean `state/`). The whole demo was done on the page: compare, read the
+  numbers and the root cause, open W10112, be refused as Murtaza Dibbo, approve as Owen
+  Castellanos, see the warrant with its approval and what was written, then the audit footer
+  (29 events).
+
+  **The browser found five problems the headless tests could not.** All were fixed, re-checked
+  in the browser, and are now covered by tests:
+  1. blank labels rendered as a literal `****`;
+  2. a decision's outcome appeared only at the top of the page, out of the decider's view, and
+     the row collapsed;
+  3. the last-run time was a raw ISO timestamp;
+  4. Streamlit's "Deploy" button was in the toolbar;
+  5. **the page listened on all network interfaces** (it printed a Network and an External URL).
+     It now binds to 127.0.0.1 — checked with `lsof`.
+- **The tests can fail:** 9 new deliberate breakages were all caught:
+  - deciding without applying;
+  - every row offering a decision;
+  - the page creating state on load;
+  - approved fixes counted as automatic;
+  - rows not ordered;
+  - `****` labels;
+  - outcomes shown only at the top;
+  - listening on every interface;
+  - an empty name sent to Warrant.
+
+  Step 8's 20 and Step 9's 7 are still all caught (one Step 9 pattern was updated for the
+  refactored code).
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -777,13 +869,40 @@ Exit 0, and no deno left running.
   exactly this. **Answered at the gate:** keep Warrant as it is; the README (Step 13) states it
   correctly. PLAN.md itself is left as written.
 
+**Step 10**
+- **New module `drift/review.py`** (not in BUILD.md's layout). It holds what the page shows and
+  its three actions, so `app.py` holds no logic and the page can be tested without Streamlit.
+- **Approve on the page applies straight away** (approve, then sync — both the CLI's functions).
+  The CLI keeps approve and sync separate, as BUILD.md describes.
+- **The page shows the values that differ**, including pay and legal names. CLAUDE.md rule 5 is
+  about what reaches the LLM and Warrant, and neither changed. The page is the decider's own
+  view: an approver can't judge a pay correction without seeing the figures. The run report
+  still leaves values out.
+- **`.streamlit/config.toml` was added:** localhost only, no prompt, no telemetry, minimal
+  toolbar.
+- **The page reads optional `DRIFT_STATE_DIR` / `DRIFT_REPORTS_DIR` / `DRIFT_SOURCE_DIR`**,
+  because a Streamlit script takes no command-line options. The tests use them; `make app` does
+  not need them.
+- **`report.shown_lines` is now built from `report.shown_facts`.** `report._changes` became the
+  public `changes`.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
   terminal does. Nobody has yet pressed Ctrl-C in a real terminal.
 - **Tested on macOS only** (bash 3.2, BSD tools). Not run on Linux.
-- **`make app` is not built yet** (Step 10). *(`make run`, `make approve` and `make sync` work as
-  of Step 8, run by hand once; a rough `make demo` and `make show` as of Step 9.)*
+- **Step 10: the real-browser check was done once, by Claude driving Chrome on macOS, not by the
+  human.**
+  - `make app` itself was not typed. The same command was run with `--server.headless true` and
+    an explicit port, so `make app`'s automatic browser opening is unexercised.
+  - The two download buttons were seen but not clicked (that would save files). Their contents
+    come from `GET /export` and the report file, both tested elsewhere.
+- **Step 10: Warrant listens on all network interfaces (`0.0.0.0:8000`).** This is Deno's default
+  in Warrant's own `server.ts`. It requires the bearer token for everything except `/health` and
+  `/policies`. Changing it means changing Warrant beyond the agreed scope, so it is left as an
+  open question.
+- **Step 10: the page has only ever shown template explanations.** There is no API key here
+  (see Step 7).
 - **Step 9: `make demo` leaves `state/drift.db` behind, but its ledger was in memory.** A
   following `make run` / `make show` (which persist to `state/ledger.jsonl`) would find records
   whose warrants that ledger has never seen. Until Step 11 settles it, run `make reset` after
@@ -840,10 +959,16 @@ Exit 0, and no deno left running.
 - **Step 11:** `make demo` leaves `state/drift.db` behind with an in-memory ledger (see
   Verification debt). Decide there whether the demo uses its own state directory or resets
   afterwards.
+- **Step 10, Warrant's network binding:** should Warrant listen on localhost only? That needs a
+  small change to `warrant/src/server.ts` (a `hostname` on `Deno.serve`, perhaps from an env
+  variable), which is outside the agreed Warrant changes, so it needs the human's go-ahead.
+- **Step 10, values on the page:** the page shows pay figures and legal names to the person
+  deciding (see Deviations → Step 10). Confirm, or have the page show percentages and withhold
+  names as the report does.
 
 ## Next step
 
-Step 10 · Review page (`app.py`, Streamlit), for a non-technical HR reader. It calls the same
-functions as the CLI — `govern.run / show / approve / sync`, `explain`, `report.ignored_line` —
-with no logic in `app.py`. "Done when": the human can do the whole demo from the page without
-the terminal.
+Step 11 · Demo script. Polish `make demo`: reset, start Warrant (memory store, random token),
+generate data, run, approve one held termination, sync, print `/verify`, then open the page — all
+narrated. Settle there whether the demo uses its own state directory (see Open questions →
+Step 11).

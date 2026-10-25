@@ -143,6 +143,17 @@ class WarrantClient:
     def verify(self) -> dict:
         return self._call("GET", "/verify", (200,))[1]
 
+    def export(self) -> bytes:
+        """The ledger as a JSONL evidence package (GET /export)."""
+        try:
+            r = self.http.get("/export")
+        except httpx.TransportError as e:
+            raise WarrantUnreachable(
+                f"Warrant at {self.url} is unreachable ({type(e).__name__})") from None
+        if r.status_code != 200:
+            raise WarrantUnreachable(f"Warrant answered {r.status_code} to GET /export")
+        return r.content
+
 
 # ── the request, computed per record ─────────────────────────────────────────────────────────
 

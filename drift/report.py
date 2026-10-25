@@ -131,7 +131,8 @@ def write(r: RunResult, directory: Path, approvers: Mapping[str, classify.Approv
     return path
 
 
-def _changes(result: dict | None) -> list[str]:
+def changes(result: dict | None) -> list[str]:
+    """What a committed result wrote, one line per column."""
     changed = (result or {}).get("changed") or {}
     if not changed:
         return [(result or {}).get("note", "nothing written")]
@@ -139,52 +140,61 @@ def _changes(result: dict | None) -> list[str]:
             else f"{column}: {v}" for column, v in changed.items()]
 
 
-def shown_lines(shown: Shown, approvers: Mapping[str, classify.Approver]) -> list[str]:
-    """One correction as Warrant holds it: what was authorised, by whom, why, from which
-    sources, and what was written. For a held correction there is no warrant to show yet."""
+def shown_facts(shown: Shown,
+                approvers: Mapping[str, classify.Approver]) -> list[tuple[str, str]]:
+    """One correction as Warrant holds it, as (label, value) pairs: what was authorised, by whom,
+    why, from which sources, and what was written. A held correction has no warrant yet, so it
+    shows its approval instead. The CLI and the page both print these."""
     rec, w, a = shown.record, shown.warrant, shown.approval
     roles = {x.name: x.role for x in approvers.values()}
-    out: list[str] = []
-    if rec is not None:
-        out.append(f"{rec.employee_ref} · {rec.type} {classify.label(rec.type)} — {rec.status}")
     if w is None:
-        if a is not None:
-            who = a.get("requested_of") or ""
-            out += [f"  Requested of  {who} ({roles.get(who, 'approver')})",
-                    f"  Approval      {a.get('approval_id')} — {a.get('state')}, lapses "
-                    f"{a.get('expires_at')}"]
-            out += [f"  Decision      {d.get('decision')} by {d.get('approver')}"
-                    for d in a.get("decisions") or []]
-            if a.get("state") == "pending_approval":
-                out.append(f"  No warrant exists until {who} decides — there is nothing to act "
-                           f"with, and nothing has been written.")
-        elif rec is not None:
-            out.append(f"  {rec.detail or 'No warrant was issued.'}")
-        return out
+        if a is None:
+            return [("Status", rec.detail or "No warrant was issued.")] if rec else []
+        who = a.get("requested_of") or ""
+        facts = [("Requested of", f"{who} ({roles.get(who, 'approver')})"),
+                 ("Approval", f"{a.get('approval_id')} — {a.get('state')}, lapses "
+                              f"{a.get('expires_at')}")]
+        facts += [("Decision", f"{d.get('decision')} by {d.get('approver')}")
+                  for d in a.get("decisions") or []]
+        if a.get("state") == "pending_approval":
+            facts.append(("", f"No warrant exists until {who} decides — there is nothing to act "
+                              f"with, and nothing has been written."))
+        return facts
     record = w.get("record") or {}
-    approvals = w.get("approvals") or []
-    approved = [x for x in approvals if x.get("decision") == "approved"]
-    sources = record.get("sources") or []
-    out += [f"  Warrant       {w.get('warrant_id')} — {w.get('state')}",
-            f"  Policy        {w.get('policy_id')}",
-            f"  Actor         {record.get('actor')}",
-            f"  Principal     {record.get('principal')}",
-            f"  Change        {record.get('action')} {record.get('system')} · "
-            f"{record.get('object')} · {record.get('field')} · {record.get('change_class')}",
-            f"  Purpose       {record.get('purpose')}"]
-    out += [f"  {'Sources' if i == 0 else '':<13} {src}" for i, src in enumerate(sources)]
-    out.append("  Approval      " + (
-        f"approved by {approved[-1].get('approver')}, the person it was requested of"
-        if approved
-        else "none needed — routine" if not record.get("approval_from")
-        else f"requested of {record.get('approval_from')}"))
+    approved = [x for x in w.get("approvals") or [] if x.get("decision") == "approved"]
+    facts = [("Warrant", f"{w.get('warrant_id')} — {w.get('state')}"),
+             ("Policy", str(w.get("policy_id"))),
+             ("Actor", str(record.get("actor"))),
+             ("Principal", str(record.get("principal"))),
+             ("Change", f"{record.get('action')} {record.get('system')} · {record.get('object')}"
+                        f" · {record.get('field')} · {record.get('change_class')}"),
+             ("Purpose", str(record.get("purpose")))]
+    facts += [("Sources" if i == 0 else "", src)
+              for i, src in enumerate(record.get("sources") or [])]
+    facts.append(("Approval", f"approved by {approved[-1].get('approver')}, the person it was "
+                              f"requested of" if approved
+                  else "none needed — routine" if not record.get("approval_from")
+                  else f"requested of {record.get('approval_from')}"))
     if w.get("state") == "committed":
         outcome = w.get("outcome") or {}
-        written = _changes(outcome)
-        out.append(f"  Written       {outcome.get('target')} {outcome.get('row')}: {written[0]}")
-        out += [f"  {'':<13} {line}" for line in written[1:]]
+        written = changes(outcome)
+        facts.append(("Written", f"{outcome.get('target')} {outcome.get('row')}: {written[0]}"))
+        facts += [("", line) for line in written[1:]]
     elif w.get("state") == "aborted":
-        out.append(f"  Aborted       {w.get('outcome')}")
-    out.append(f"  Ledger        {w.get('event_count')} events, {w.get('created_at')} → "
-               f"{w.get('last_event_at')}")
-    return out
+        facts.append(("Aborted", str(w.get("outcome"))))
+    facts.append(("Ledger", f"{w.get('event_count')} events, {w.get('created_at')} → "
+                            f"{w.get('last_event_at')}"))
+    return facts
+
+
+def shown_lines(shown: Shown, approvers: Mapping[str, classify.Approver]) -> list[str]:
+    """`shown_facts` for a terminal, headed by the mismatch."""
+    rec = shown.record
+    lines = ([f"{rec.employee_ref} · {rec.type} {classify.label(rec.type)} — {rec.status}"]
+             if rec else [])
+    for label, value in shown_facts(shown, approvers):
+        if label or shown.warrant:  # an unlabelled line continues the one above it
+            lines.append(f"  {label:<13} {value}")
+        else:  # a held correction's closing note
+            lines.append(f"  {value}")
+    return lines

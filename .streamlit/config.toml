@@ -1,0 +1,10 @@
+# Streamlit settings for `make app` (read from the directory it is started in).
+[server]
+address = "localhost"    # the page can approve corrections: never listen beyond this machine
+showEmailPrompt = false  # no interactive first-run prompt in the terminal
+
+[browser]
+gatherUsageStats = false  # no usage telemetry
+
+[client]
+toolbarMode = "minimal"  # no "Deploy" button or developer menu in front of an HR reader

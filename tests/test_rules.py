@@ -51,3 +51,19 @@ def test_drift_never_starts_imports_or_reads_warrant() -> None:
     offenders = [p.relative_to(DRIFT.parent) for p in DRIFT.rglob("*.py")
                  if banned.search(p.read_text(encoding="utf-8"))]
     assert offenders == []
+
+
+def test_the_page_holds_no_logic() -> None:
+    """app.py lays out what review.py assembles. It never opens Drift's state, touches the
+    target or detection directly, or acts except through review's actions (which call the same
+    governance code as the CLI)."""
+    source = (DRIFT / "app.py").read_text(encoding="utf-8")
+    imported = {node.module if isinstance(node, ast.ImportFrom) else alias.name
+                for node in ast.walk(ast.parse(source))
+                if isinstance(node, (ast.Import, ast.ImportFrom))
+                for alias in node.names}
+    assert imported <= {"__future__", "datetime", "pathlib", "streamlit", "drift",
+                        "drift.report"}, imported
+    for banned in ("govern.run(", "govern.approve(", "govern.sync(", "State(", "AdpTarget",
+                   "detect_sources", "normalize"):
+        assert banned not in source, banned
