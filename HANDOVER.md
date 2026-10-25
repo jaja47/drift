@@ -16,7 +16,7 @@ Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
 | ✅ | 6 · **GATE A** | 2 | answered 2026-10-24 |
 | ✅ | 7 · Explanations + patterns | 3 | done 2026-10-24 |
 | ✅ | 8 · Governance + apply | 3 | done 2026-10-25 |
-| ⏸ | 9 · **GATE B** | 3 | demo run 2026-10-25 — waiting for the human's answers |
+| ✅ | 9 · **GATE B** | 3 | answered 2026-10-25 |
 | ⬜ | 10 · Review page | 4 | |
 | ⬜ | 11 · Demo script | 4 | |
 | ⬜ | 12 · n8n (stretch) | 4 | |
@@ -486,7 +486,20 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
     survived;
   - no test had a decision made outside Drift.
 
-## Step 9 · GATE B — prepared and run, waiting for answers
+## Step 9 · GATE B — the human's answers
+
+`make demo` was run and its output shown (transcript below).
+
+1. **Do all five demo beats in PLAN.md §1 happen?** Yes, all five.
+2. **Are the approvers right?** Yes. Three separate fictional approvers stay as configured:
+   Priya Raman (compensation), Owen Castellanos (employment status) and Grace Adeyemi
+   (identity).
+3. **Should refused requests be recorded in the ledger?** No. Warrant stays as it is: a refused
+   request leaves no event. **The README (Step 13) must state this correctly**, rather than
+   PLAN.md §1's "every … refusal … lands in Warrant's hash-chained ledger".
+
+Nothing in the code changed as a result of the answers.
+
 
 **The human's decisions before the gate (2026-10-25):**
 - **Keep the read-back check.** Before every write, Drift reads the warrant back from Warrant.
@@ -546,8 +559,6 @@ Exit 0, and no deno left running.
   following an approval, a held correction shown without "no warrant exists", the demo skipping
   sync. The first run caught 6/7. The gap — no test of `show` before `sync` for a decision made
   directly in Warrant — was filled. Step 8's 20 breakages still all get caught.
-
-**Questions put to the human at the gate:** see Open questions → GATE B.
 
 ## Deviations from PLAN.md / BUILD.md
 
@@ -763,7 +774,8 @@ Exit 0, and no deno left running.
   rejection lands in Warrant's hash-chained ledger". A *rejection* by an approver does
   (`warrant.refused`). A *refused request* — a 422, or a refused decision such as the principal
   trying to approve — writes no event, by Warrant's design (tested in Step 3). The demo says
-  exactly this. Raised at the gate.
+  exactly this. **Answered at the gate:** keep Warrant as it is; the README (Step 13) states it
+  correctly. PLAN.md itself is left as written.
 
 ## Verification debt
 
@@ -818,20 +830,20 @@ Exit 0, and no deno left running.
 
 ## Open questions (for later steps — nothing decided yet)
 
-- *(The three Step 8 questions are answered under Deviations → Step 8. GATE B's beat-2 gap was
-  filled by `show`.)*
-- **GATE B, asked 2026-10-25 — waiting:**
-  1. Do all five demo beats in PLAN.md §1 happen, as you would want to show them?
-  2. **Approvers:** Priya Raman (compensation), Owen Castellanos (employment status) and Grace
-     Adeyemi (identity) are fictional placeholders. Are three separate approvers right, and with
-     these roles? (Which roles SPS would really use is still a question for HR Operations,
-     PLAN.md §5.)
-  3. **Ledger wording:** keep Warrant as it is (a refused request leaves no event) and correct
-     PLAN.md's wording in the README (Step 13)? Or should refusals be recorded somewhere? Recording
-     them in Warrant would change Warrant beyond the agreed scope.
+- *(The Step 8 questions are answered under Deviations → Step 8, and the GATE B questions under
+  Step 9.)*
+- **Step 13, required by GATE B:** the README must say what the ledger records:
+  - an issued, held or committed warrant, an approval and an approver's rejection are events;
+  - a refused request — a policy 422, or a decision Warrant refuses — leaves no event.
+
+  Do not copy PLAN.md §1's "every … refusal … lands in the ledger".
+- **Step 11:** `make demo` leaves `state/drift.db` behind with an in-memory ledger (see
+  Verification debt). Decide there whether the demo uses its own state directory or resets
+  afterwards.
 
 ## Next step
 
-**Waiting at GATE B** for the answers above. After that: record them here, mark Step 9 done, then
-Step 10 · Review page (`app.py`, Streamlit), calling the same functions: `govern.run / show /
-approve / sync`, `explain`, `report.ignored_line`.
+Step 10 · Review page (`app.py`, Streamlit), for a non-technical HR reader. It calls the same
+functions as the CLI — `govern.run / show / approve / sync`, `explain`, `report.ignored_line` —
+with no logic in `app.py`. "Done when": the human can do the whole demo from the page without
+the terminal.
