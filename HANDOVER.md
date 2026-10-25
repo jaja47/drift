@@ -472,21 +472,21 @@ The table from `python -m drift.cli detect` was shown: 18 rows, plus both export
 - **Tested on macOS only** (bash 3.2, BSD tools). Not run on Linux.
 - **`make run`, `make app` and `make demo` exist but are not built yet.** `run` and `demo` reach
   the `cli.py` stub, which exits 2. (`make data` works as of Step 2.)
-- **Step 2:** "no accidental extras" is proven against the test's own comparison, not the real
-  detector, which Steps 4–5 still have to build to hit 18/18. The mutation checks were a one-off
-  script and are not in the suite.
-- **Step 2:** D1-2's ADP email ends in a trailing space inside the CSV. If Step 4's CSV reader
-  trims whitespace silently, that decoy stops testing anything (it would still pass). Step 4
-  should trim deliberately, in `normalize.py`.
+- **Step 2:** the mutation checks (in every step since) are one-off scripts and are not in the
+  suite. *(Resolved in Step 5: "no accidental extras" is now also proven by the real detector,
+  with 18/18, 0 decoys and 0 extras.)*
+- ~~**Step 2:** D1-2's trailing space could be trimmed away silently by the CSV reader.~~
+  *Resolved in Step 4: the reader returns values untouched
+  (`test_values_come_back_exactly_as_exported`), and `normalize.py` trims deliberately.*
 - **Step 3:** the new Warrant tests call the request handler in-process, as the existing ones do.
   Against the real process, only the manual run above was done. Step 8's integration tests are the
   real end-to-end check.
-- **Step 4:** the ±$1 rule exists in Python (`pay_matches`), and Step 5's `detect.sql` will need
-  the same comparison. Step 5 should pass `PAY_TOLERANCE_CENTS` into the SQL as a parameter rather
-  than writing 100 again; the 18/18 + 0-decoy test is what proves the two agree. The mutation
-  checks were a one-off script.
-- **Step 4:** a `Pair` carries names and emails because M7 and D1 need them. Step 7 must build the
-  LLM payload from an explicit allow-list, never from a whole `Pair`.
+- ~~**Step 4:** the ±$1 rule would exist twice (Python and SQL).~~ *Resolved in Step 5:
+  `detect.sql` takes `$pay_tolerance_cents` from `normalize.PAY_TOLERANCE_CENTS`, with boundary
+  tests at +$1 (not flagged) and ±$1.01 (flagged).*
+- ~~**Step 4:** a `Pair` carries names and emails, so the LLM payload must not be built from
+  one.~~ *Resolved in Step 7: `explain.payload()` is an allow-list built from a `Mismatch`, and a
+  test checks it carries no names, emails or pay.*
 - **Step 7: no live Claude API call has been made.** This machine has no credentials (no
   `ANTHROPIC_API_KEY` in the shell or `.env`, and no `ant` CLI). The LLM path is tested only
   against a fake client. Not yet confirmed against the real API: the request shape (beta
