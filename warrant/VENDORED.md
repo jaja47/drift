@@ -56,3 +56,16 @@ tests and the README counts are expected to change; anything else needs the huma
 Verified in this directory: `deno fmt --check`, `deno lint`, `deno check src/ test/ demo/`,
 `deno task test` (56 passed) and `deno task demo` all pass, which is the same sequence as
 `.github/workflows/ci.yml`.
+
+### 2026-10-25 · Drift Step 11 — listen on loopback by default (approved by the human)
+
+- **`src/server.ts`**: `Deno.serve` now gets a `hostname`, from `WARRANT_HOSTNAME`, defaulting to
+  `127.0.0.1`. Before this it listened on every interface (Deno's default, `0.0.0.0`). Every route
+  except `/health` and `/policies` already needed the token, but a service that decides what may
+  change records should only be offered to the network on purpose. The human approved this change,
+  which is outside the agreed policy/tests/README scope, before it was made.
+- **`README.md`**: a `WARRANT_HOSTNAME` row in the configuration table (`deno fmt` widened that
+  table's last column).
+
+No test changed. The binding happens in the `import.meta.main` block, which the in-process tests do
+not run; Drift's integration tests check it against a real process.

@@ -5,7 +5,10 @@
     python -m drift.cli approve REF --as "NAME" --decision approved|rejected [--note TEXT]
     python -m drift.cli sync    [--source DIR] [--state DIR]
     python -m drift.cli show    REF        (employee ref, fingerprint, wrt_… or apr_… id)
-    python -m drift.cli demo               (the five demo beats, in one Warrant lifetime)
+    python -m drift.cli demo    [--pause]  (the five demo beats, in one Warrant lifetime)
+
+The directory options default to DRIFT_SOURCE_DIR / DRIFT_STATE_DIR / DRIFT_REPORTS_DIR when set
+(the page reads the same variables), otherwise to data/source, state and reports.
 
 `run`, `approve`, `sync`, `show` and `demo` need Warrant (WARRANT_URL, WARRANT_TOKEN) and a
 principal (DRIFT_PRINCIPAL); `scripts/dev.sh` provides all three.
@@ -188,9 +191,12 @@ def cmd_demo(args: argparse.Namespace) -> int:
     s = settings(args)
     if s is None:
         return 2
+    def wait(title: str) -> None:
+        input(f"\n  ⏎  next: {title} ")
+
     client = govern.WarrantClient.from_env()
     try:
-        return demo(s, client)
+        return demo(s, client, pause=wait if args.pause and sys.stdin.isatty() else None)
     finally:
         client.close()
 
@@ -206,9 +212,13 @@ def main(argv: list[str] | None = None) -> int:
 
     def governed(name: str, help: str) -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help)
-        p.add_argument("--source", type=Path, default=DEFAULT_DIR)
-        p.add_argument("--state", type=Path, default=govern.STATE_DIR)
-        p.add_argument("--reports", type=Path, default=govern.REPORTS_DIR)
+        # The same DRIFT_* variables the page reads, so `make demo` sets its directories once.
+        env = os.environ.get
+        p.add_argument("--source", type=Path, default=Path(env("DRIFT_SOURCE_DIR") or DEFAULT_DIR))
+        p.add_argument("--state", type=Path,
+                       default=Path(env("DRIFT_STATE_DIR") or govern.STATE_DIR))
+        p.add_argument("--reports", type=Path,
+                       default=Path(env("DRIFT_REPORTS_DIR") or govern.REPORTS_DIR))
         return p
 
     governed("run", "detect, then govern every mismatch through Warrant").set_defaults(
@@ -224,8 +234,10 @@ def main(argv: list[str] | None = None) -> int:
     show = governed("show", "one correction as Warrant holds it: purpose, sources, result")
     show.add_argument("ref", help="employee ref, fingerprint prefix, wrt_… or apr_… id")
     show.set_defaults(run=cmd_show)
-    governed("demo", "the five demo beats, narrated (needs fresh state)").set_defaults(
-        run=cmd_demo)
+    demo = governed("demo", "the five demo beats, narrated (needs fresh state)")
+    demo.add_argument("--pause", action="store_true",
+                      help="wait for Enter before each beat (only at a terminal)")
+    demo.set_defaults(run=cmd_demo)
     args = parser.parse_args(argv)
     return args.run(args)
 

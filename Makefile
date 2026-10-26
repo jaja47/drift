@@ -4,7 +4,7 @@
 # run / approve / sync / show / app each start their own Warrant, so they use --persist: the ledger
 # (state/ledger.jsonl) then lives exactly as long as Drift's own state (state/drift.db), and a
 # request held by `run` still exists when `approve` decides it. `make reset` clears both.
-# `make demo` runs its whole flow inside one Warrant, on the in-memory store.
+# `make demo` runs its whole flow inside one Warrant, on the in-memory store and its own state.
 
 PYTHON ?= python3
 VENV   := .venv
@@ -53,8 +53,18 @@ show:
 app:
 	$(DEV) --persist $(PY) -m streamlit run drift/app.py
 
-demo: reset
-	$(DEV) $(PY) -m drift.cli demo
+# The demo runs in one Warrant lifetime: fresh data, an in-memory ledger, a fresh random token
+# and state of its own (state/demo, reports/demo — the state `run` and `app` keep is never
+# touched). The narration pauses before each beat; then the review page opens on the same run,
+# until Ctrl-C stops the page and Warrant together.
+DEMO_ENV := DRIFT_STATE_DIR=state/demo DRIFT_REPORTS_DIR=reports/demo
+demo:
+	rm -rf state/demo reports/demo
+	$(PY) -m scripts.generate_data
+	WARRANT_TOKEN=$$(openssl rand -hex 32) $(DEMO_ENV) $(DEV) sh -c '\
+	  $(PY) -m drift.cli demo --pause && \
+	  printf "\n  Opening the review page on this run: http://localhost:8501\n  Ctrl-C stops the page and Warrant.\n\n" && \
+	  exec $(PY) -m streamlit run drift/app.py' || test $$? -eq 130  # Ctrl-C is how it ends
 
 # Generated state only. data/source/ and warrant/ are never touched here.
 reset:

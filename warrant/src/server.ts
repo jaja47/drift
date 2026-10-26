@@ -541,5 +541,8 @@ if (import.meta.main) {
   );
 
   const port = Number(Deno.env.get("PORT") ?? 8000);
-  Deno.serve({ port }, createHandler({ store, token, approvalTtlSeconds }));
+  // Loopback only unless told otherwise. This service decides what may change real records, so
+  // offering it to the network should be a deliberate choice, not a default.
+  const hostname = Deno.env.get("WARRANT_HOSTNAME") ?? "127.0.0.1";
+  Deno.serve({ port, hostname }, createHandler({ store, token, approvalTtlSeconds }));
 }

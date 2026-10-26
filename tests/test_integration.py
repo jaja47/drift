@@ -28,7 +28,7 @@ from drift.govern import (
     WarrantUnreachable,
     apply_with_warrant,
 )
-from drift.demo import demo
+from drift.demo import BEATS, demo
 from drift.state import Record, State
 from drift.target.adp_target import CREATED_ID_PREFIX
 
@@ -570,6 +570,19 @@ def test_the_cli_runs_approves_and_syncs(warrant, tmp_path: Path, monkeypatch, c
     assert cli.main(["show", "W99999", *dirs]) == 1
 
 
+def test_the_cli_reads_its_directories_from_the_same_variables_as_the_page(
+        warrant, tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("WARRANT_URL", warrant.url)
+    monkeypatch.setenv("WARRANT_TOKEN", warrant.token)
+    monkeypatch.setenv("DRIFT_PRINCIPAL", PRINCIPAL)
+    monkeypatch.setenv("DRIFT_STATE_DIR", str(tmp_path / "demo-state"))
+    monkeypatch.setenv("DRIFT_REPORTS_DIR", str(tmp_path / "demo-reports"))
+    assert cli.main(["demo", "--pause"]) == 0  # stdin is not a terminal: no pause, no hang
+    assert (tmp_path / "demo-state" / "drift.db").exists()
+    assert list((tmp_path / "demo-reports").glob("run_*.md"))
+    assert "5 · And the record can be checked" in capsys.readouterr().out
+
+
 def test_the_cli_refuses_to_run_without_a_principal(warrant, tmp_path: Path, monkeypatch,
                                                     capsys) -> None:
     monkeypatch.delenv("DRIFT_PRINCIPAL", raising=False)
@@ -594,12 +607,13 @@ def test_the_cli_refuses_a_principal_who_is_an_approver(warrant, tmp_path: Path,
 
 def test_the_demo_shows_all_five_beats(warrant, tmp_path: Path, capsys) -> None:
     s = settings(tmp_path)
-    assert demo(s, WarrantClient(warrant.url, warrant.token)) == 0
+    paused: list[str] = []
+    assert demo(s, WarrantClient(warrant.url, warrant.token), pause=paused.append) == 0
     out = capsys.readouterr().out
-    for title in ("1 · Compare", "2 · Routine fixes went through on their own",
-                  "3 · A terminated employee still active in payroll", "4 · The pattern",
-                  "5 · And the record can be checked"):
-        assert title in out
+    for n, title in enumerate(BEATS, 1):
+        assert f"{n} · {title}" in out
+    assert paused == list(BEATS[1:])  # a live run can stop before each beat after the first
+    assert "\x1b[" not in out  # no colour codes when not printing to a terminal
     assert "18 real mismatches" in out and "4 format differences correctly ignored" in out
     assert "Purpose       Change the ADP home department for W10015" in out
     assert "No warrant exists until Owen Castellanos decides" in out
@@ -620,3 +634,35 @@ def test_the_demo_refuses_stale_state(warrant, tmp_path: Path, capsys) -> None:
     assert demo(s, WarrantClient(warrant.url, warrant.token)) == 2
     assert "fresh state" in capsys.readouterr().out
     assert len(warrant.events()) == before
+
+
+# ── Warrant is offered to this machine only ──────────────────────────────────────────────────
+
+
+def non_loopback_address() -> str | None:
+    """This machine's address on its outward network, if it has one. A UDP connect sends
+    nothing; it only picks the route."""
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))  # TEST-NET-1: never routed anywhere real
+            address = s.getsockname()[0]
+    except OSError:
+        return None
+    return None if address.startswith("127.") else address
+
+
+def test_warrant_listens_on_loopback_only(warrant) -> None:
+    """If Warrant held every interface, its port would be taken on this machine's network address
+    too. Binding that address ourselves shows it is free — no traffic needed, so a sandbox or a
+    firewall cannot make the test pass by accident."""
+    import socket
+
+    address = non_loopback_address()
+    if address is None:
+        pytest.skip("this machine has no non-loopback address to test from")
+    port = httpx.URL(warrant.url).port
+    assert httpx.get(warrant.url + "/health", timeout=2).status_code == 200
+    with socket.socket() as probe:
+        probe.bind((address, port))  # OSError "address already in use" if Warrant held 0.0.0.0

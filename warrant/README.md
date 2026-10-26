@@ -175,13 +175,14 @@ export WARRANT_TOKEN=$(openssl rand -hex 32)
 deno task dev
 ```
 
-| Variable               | Default                 |                                         |
-| ---------------------- | ----------------------- | --------------------------------------- |
-| `WARRANT_TOKEN`        | _(none — fails closed)_ | bearer token                            |
-| `WARRANT_STORE`        | `jsonl`                 | `jsonl` or `memory`                     |
-| `WARRANT_LEDGER`       | `./ledger.jsonl`        | log path                                |
-| `PORT`                 | `8000`                  |                                         |
-| `WARRANT_APPROVAL_TTL` | `86400`                 | seconds a held approval stays decidable |
+| Variable               | Default                 |                                                   |
+| ---------------------- | ----------------------- | ------------------------------------------------- |
+| `WARRANT_TOKEN`        | _(none — fails closed)_ | bearer token                                      |
+| `WARRANT_STORE`        | `jsonl`                 | `jsonl` or `memory`                               |
+| `WARRANT_LEDGER`       | `./ledger.jsonl`        | log path                                          |
+| `PORT`                 | `8000`                  |                                                   |
+| `WARRANT_HOSTNAME`     | `127.0.0.1`             | interface to listen on — loopback only unless set |
+| `WARRANT_APPROVAL_TTL` | `86400`                 | seconds a held approval stays decidable           |
 
 ---
 

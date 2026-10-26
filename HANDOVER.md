@@ -18,7 +18,7 @@ Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
 | ✅ | 8 · Governance + apply | 3 | done 2026-10-25 |
 | ✅ | 9 · **GATE B** | 3 | answered 2026-10-25 |
 | ✅ | 10 · Review page | 4 | done 2026-10-25 |
-| ⬜ | 11 · Demo script | 4 | |
+| ✅ | 11 · Demo script | 4 | done 2026-10-25 |
 | ⬜ | 12 · n8n (stretch) | 4 | |
 | ⬜ | 13 · Documentation | 5 | |
 | ⬜ | 14 · Rehearsal support | 5 | |
@@ -652,6 +652,66 @@ Exit 0, and no deno left running.
   Step 8's 20 and Step 9's 7 are still all caught (one Step 9 pattern was updated for the
   refactored code).
 
+## Step 11 · Demo script — what was done and verified
+
+**The human's decisions at the start of this step (2026-10-25):**
+- **Bind Warrant to localhost.** Done; see below and `warrant/VENDORED.md`.
+- **Keep the values on the page** (pay figures and legal names, for the person deciding).
+
+**Warrant listens on loopback only.** `warrant/src/server.ts` passes a `hostname` to `Deno.serve`,
+from `WARRANT_HOSTNAME`, defaulting to `127.0.0.1` (before, it listened on `0.0.0.0`). The
+README's configuration table has the new row, and `VENDORED.md` logs the change as approved.
+Warrant's CI sequence passes: fmt, lint, check, 56 tests, demo.
+
+**`make demo`, polished:**
+- It **runs in one Warrant lifetime, with state of its own.** It:
+  - clears `state/demo` and `reports/demo`;
+  - regenerates the data (identical bytes);
+  - starts Warrant through `dev.sh`, in memory, with a **fresh random token** for this demo;
+  - runs the narration;
+  - then opens the review page on the same run, until Ctrl-C.
+
+  The state `make run` / `make app` keep in `state/` is never touched. This settles the Step 9
+  question.
+- **The narration** (`drift/demo.py`) follows Warrant's walkthrough:
+  - bold beat titles taken from PLAN.md §1;
+  - a dimmed line per beat saying what to notice;
+  - green for warrants, applied fixes and an intact ledger; red for refusals;
+  - colour only at a terminal (`NO_COLOR` respected).
+- **`--pause`** waits for Enter before beats 2–5, but only when stdin is a terminal, so scripted
+  runs never hang.
+- **Ctrl-C is how the demo ends,** so exit 130 counts as a clean stop for this target only.
+- The CLI's `--source/--state/--reports` default to `DRIFT_SOURCE_DIR / DRIFT_STATE_DIR /
+  DRIFT_REPORTS_DIR` when set — the variables the page reads — so the demo sets its directories
+  once.
+- The demo's explanation cache lives in its own state directory.
+
+**Verified by running:**
+- `make test` → pytest **308 passed**; Warrant **56 passed**.
+- **The real `make demo`** (the page headless, so no extra browser window opened):
+  - all five beats narrated, exit 0 before the page;
+  - Warrant on `127.0.0.1:8000` and the page on `127.0.0.1:8501` (`lsof`);
+  - in Chrome, the page showed the demo's own run: 9 waiting, W10112 fixed after approval,
+    29 events, the same run time;
+  - SIGINT to the demo's whole process group (what Ctrl-C sends) stopped the page and Warrant:
+    no deno or streamlit left, both ports free. After the exit-130 change a second run ended
+    with exit 0;
+  - **the persistent state was untouched:** `state/drift.db`, `state/ledger.jsonl` and
+    `state/adp_current.csv` from an earlier `make run` had the same sha1 before and after;
+  - `data/` showed no git change after regenerating.
+- **New tests:**
+  - **Warrant listens on loopback only.** The test binds this machine's own network address on
+    Warrant's port. That succeeds only if Warrant does not hold every interface, and needs no
+    traffic. A first version that tried to *connect* passed even with `0.0.0.0`, because this
+    sandbox cannot reach its own LAN address. Now the test fails with `0.0.0.0` and passes with
+    `127.0.0.1`.
+  - the demo calls `pause` exactly before beats 2–5 and prints no colour codes off a terminal;
+  - `cli demo --pause` doesn't hang without a terminal;
+  - the CLI takes its directories from the `DRIFT_*` variables.
+- **The tests can fail:** 4 new deliberate breakages were all caught: Warrant back on every
+  interface, the demo never pausing, the CLI ignoring the variables, colour off a terminal. The
+  earlier 36 are still all caught (40 in total).
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -886,6 +946,16 @@ Exit 0, and no deno left running.
 - **`report.shown_lines` is now built from `report.shown_facts`.** `report._changes` became the
   public `changes`.
 
+**Step 11**
+- **Warrant listens on `WARRANT_HOSTNAME`, default `127.0.0.1`.** This changes Warrant beyond
+  the agreed scope; the human approved it first. Logged in `warrant/VENDORED.md`.
+- **`make demo` uses its own state (`state/demo`, `reports/demo`) and a fresh random token per
+  run.** BUILD.md says "resets state". Clearing everything would also wipe the persistent
+  run/app state and its ledger, so the demo resets only its own.
+- **The demo pauses before each beat at a terminal**, and ends at the page with Ctrl-C. Exit 130
+  is treated as a clean stop for `make demo` only.
+- **The CLI's directory options read the `DRIFT_*` variables** that the page reads.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
@@ -897,16 +967,17 @@ Exit 0, and no deno left running.
     an explicit port, so `make app`'s automatic browser opening is unexercised.
   - The two download buttons were seen but not clicked (that would save files). Their contents
     come from `GET /export` and the report file, both tested elsewhere.
-- **Step 10: Warrant listens on all network interfaces (`0.0.0.0:8000`).** This is Deno's default
-  in Warrant's own `server.ts`. It requires the bearer token for everything except `/health` and
-  `/policies`. Changing it means changing Warrant beyond the agreed scope, so it is left as an
-  open question.
+- ~~**Step 10: Warrant listens on all network interfaces (`0.0.0.0:8000`).**~~ *Resolved in
+  Step 11: loopback by default, approved by the human, tested.*
+- **Step 11: the `--pause` prompt has not been used at a real terminal.** It was tested through
+  a hook, and a non-terminal run was checked not to hang. `make demo`'s automatic browser opening
+  was not exercised either: it was run headless to keep extra windows off this machine. Ctrl-C
+  was again sent as SIGINT to the process group by a script, not typed.
 - **Step 10: the page has only ever shown template explanations.** There is no API key here
   (see Step 7).
-- **Step 9: `make demo` leaves `state/drift.db` behind, but its ledger was in memory.** A
-  following `make run` / `make show` (which persist to `state/ledger.jsonl`) would find records
-  whose warrants that ledger has never seen. Until Step 11 settles it, run `make reset` after
-  `make demo`.
+- ~~**Step 9: `make demo` leaves `state/drift.db` behind, but its ledger was in memory.**~~
+  *Resolved in Step 11: the demo keeps its own `state/demo`, and the persistent state was checked
+  unchanged by sha1.*
 - **Step 2:** the mutation checks (in every step since) are one-off scripts and are not in the
   suite. *(Resolved in Step 5: "no accidental extras" is now also proven by the real detector,
   with 18/18, 0 decoys and 0 extras.)*
@@ -956,19 +1027,13 @@ Exit 0, and no deno left running.
   - a refused request — a policy 422, or a decision Warrant refuses — leaves no event.
 
   Do not copy PLAN.md §1's "every … refusal … lands in the ledger".
-- **Step 11:** `make demo` leaves `state/drift.db` behind with an in-memory ledger (see
-  Verification debt). Decide there whether the demo uses its own state directory or resets
-  afterwards.
-- **Step 10, Warrant's network binding:** should Warrant listen on localhost only? That needs a
-  small change to `warrant/src/server.ts` (a `hostname` on `Deno.serve`, perhaps from an env
-  variable), which is outside the agreed Warrant changes, so it needs the human's go-ahead.
-- **Step 10, values on the page:** the page shows pay figures and legal names to the person
-  deciding (see Deviations → Step 10). Confirm, or have the page show percentages and withhold
-  names as the report does.
+- *(Answered 2026-10-25: the demo uses its own state; Warrant now listens on loopback; the page
+  keeps showing values to the person deciding.)*
+- **Step 12 (stretch, n8n) — do it or skip it?** BUILD.md: "Only if Steps 1–11 are done by end
+  of Day 4"; it is the first thing the cut line drops.
 
 ## Next step
 
-Step 11 · Demo script. Polish `make demo`: reset, start Warrant (memory store, random token),
-generate data, run, approve one held termination, sync, print `/verify`, then open the page — all
-narrated. Settle there whether the demo uses its own state directory (see Open questions →
-Step 11).
+Step 12 · n8n workflow is a **stretch**. Ask the human whether to build it or go to Step 13 ·
+Documentation (README, `docs/architecture.md`, final HANDOVER). The README must carry the GATE B
+wording about what the ledger records.
