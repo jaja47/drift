@@ -4,6 +4,17 @@
 
 Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
 
+## The state, in one paragraph
+
+Drift is built and documented. It reads a Workday and an ADP export (synthetic), finds the 18
+planted mismatches and none of the 4 decoys, and explains each one. It rolls 7 of them up into
+one root cause, the 1 Oct reorg. Every correction goes through Warrant: the 8 routine ones are
+written to an ADP copy under committed warrants, and the 10 sensitive ones wait for a named
+approver. Drift fails closed when Warrant gives no usable answer. It runs from the CLI, a
+Streamlit review page and a narrated `make demo`, all calling the same code. `make test`: 312
+Python tests and Warrant's 56 pass. Start with `README.md`. Step 14 (rehearsal support) is the
+only step left. What has not been verified is listed under **Verification debt**.
+
 ## Where the build stands
 
 | | Step | Day | State |
@@ -19,8 +30,8 @@ Repo: https://github.com/jaja47/drift (public, created 2026-10-24).
 | ✅ | 9 · **GATE B** | 3 | answered 2026-10-25 |
 | ✅ | 10 · Review page | 4 | done 2026-10-25 |
 | ✅ | 11 · Demo script | 4 | done 2026-10-25 |
-| ⬜ | 12 · n8n (stretch) | 4 | |
-| ⬜ | 13 · Documentation | 5 | |
+| ⏭ | 12 · n8n (stretch) | 4 | skipped 2026-10-25 (the human's decision) |
+| ✅ | 13 · Documentation | 5 | done 2026-10-25 |
 | ⬜ | 14 · Rehearsal support | 5 | |
 
 ## Step 1 · Scaffold — what was done and verified
@@ -712,6 +723,51 @@ Warrant's CI sequence passes: fmt, lint, check, 56 tests, demo.
   interface, the demo never pausing, the CLI ignoring the variables, colour off a terminal. The
   earlier 36 are still all caught (40 in total).
 
+## Step 12 · n8n workflow — skipped
+
+The human chose to skip it on 2026-10-25 and go straight to documentation. It is the first item
+on BUILD.md's cut line. If it comes up: Warrant's `adapters/README.md` describes how the same
+interlock lands in a workflow engine (a step that throws on 422, so later steps never run).
+
+## Step 13 · Documentation — what was done and verified
+
+- **`README.md`.** It covers:
+  - the problem in one paragraph, and the synthetic-data notice;
+  - two screenshots of the review page (`docs/review-page.jpg` and `docs/review-decision.jpg`,
+    taken in Chrome from a real `make demo` run);
+  - how to run it, with a table of every Make target;
+  - the five demo beats;
+  - how it works: the flow, the classes and approvers;
+  - **what the ledger records, with GATE B's wording:** a refused request leaves no event;
+  - the governance decisions (PLAN.md §4, plus the read-back check and loopback-only);
+  - **What this is not** (PLAN.md's four, plus untested live explanations and the guessed fields
+    of a created record);
+  - **What I'd validate with HR Ops first** (PLAN.md §5);
+  - tests, and the layout.
+- **`docs/architecture.md`.** It has:
+  - the PLAN.md §3 diagram, redrawn to match what was built: two processes, the one write path
+    and the files;
+  - one mismatch through every governance outcome, and the rerun rule;
+  - two real warrant requests, routine and held;
+  - what is written where, and where real systems would plug in.
+- **`tests/test_docs.py`** (4 tests) keeps the docs true to the code:
+  - the README keeps GATE B's ledger wording, and not PLAN.md's;
+  - every `make` target it names exists;
+  - its images exist;
+  - **the warrant requests in the architecture doc equal what `govern.warrant_request` builds**
+    for those records.
+- The README was checked against the code before committing. One sentence was wrong and was
+  fixed: it said Drift records every refusal itself. A refused *request* is recorded in drift.db
+  and the report; a refused *decision* is only shown to the person who tried it.
+
+**Verified by running:**
+- `make test` → pytest **312 passed**; Warrant **56 passed**.
+- **The docs tests can fail:** putting PLAN.md's "every refusal lands in the ledger" back into
+  the README failed the wording test, and editing a documented request's purpose failed the
+  request test.
+- The screenshot run was a real `make demo` (headless page). SIGINT to Streamlit ended it with
+  exit 0, with nothing left running.
+
 ## Deviations from PLAN.md / BUILD.md
 
 **Step 1**
@@ -956,6 +1012,13 @@ Warrant's CI sequence passes: fmt, lint, check, 56 tests, demo.
   is treated as a clean stop for `make demo` only.
 - **The CLI's directory options read the `DRIFT_*` variables** that the page reads.
 
+**Step 12 / 13**
+- **Step 12 (n8n) was skipped** by the human's decision.
+- **The README's screenshots are stills, not a GIF.** BUILD.md says "the demo GIF/screenshot".
+  The 3-minute screen recording is Step 14.
+- **The README's "What this is not" goes beyond PLAN.md's list:** untested live explanations, and
+  the guessed ADP fields of a record Drift creates.
+
 ## Verification debt
 
 - **Ctrl-C was simulated, not typed.** A script sent SIGINT to the process group, which is what a
@@ -1022,18 +1085,16 @@ Warrant's CI sequence passes: fmt, lint, check, 56 tests, demo.
 
 - *(The Step 8 questions are answered under Deviations → Step 8, and the GATE B questions under
   Step 9.)*
-- **Step 13, required by GATE B:** the README must say what the ledger records:
-  - an issued, held or committed warrant, an approval and an approver's rejection are events;
-  - a refused request — a policy 422, or a decision Warrant refuses — leaves no event.
-
-  Do not copy PLAN.md §1's "every … refusal … lands in the ledger".
+- *(Done in Step 13: the README states what the ledger records, and a test keeps it so.)*
 - *(Answered 2026-10-25: the demo uses its own state; Warrant now listens on loopback; the page
   keeps showing values to the person deciding.)*
-- **Step 12 (stretch, n8n) — do it or skip it?** BUILD.md: "Only if Steps 1–11 are done by end
-  of Day 4"; it is the first thing the cut line drops.
+- *(Answered 2026-10-25: Step 12 skipped.)*
 
 ## Next step
 
-Step 12 · n8n workflow is a **stretch**. Ask the human whether to build it or go to Step 13 ·
-Documentation (README, `docs/architecture.md`, final HANDOVER). The README must carry the GATE B
-wording about what the ledger records.
+Step 14 · Rehearsal support:
+- **Record a 3-minute screen capture** of `make demo` as a backup. This is the human's to do;
+  ideally at a real terminal, which also clears the untyped-Ctrl-C and `--pause` debt.
+- **Fresh-clone check:** `git clone` → `make setup && make demo` works with no manual steps,
+  with and without `ANTHROPIC_API_KEY`, and leaves no process running.
+- **Optional:** one live Claude explanation run, if a key is available (Step 7 debt).
